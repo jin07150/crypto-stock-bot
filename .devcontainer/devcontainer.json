@@ -9,5 +9,5 @@
       ]
     }
   },
-  "postCreateCommand": "pip install requests schedule python-telegram-bot pandas"
+  "postCreateCommand": "pip install requests pandas streamlit plotly yfinance"
 }
