@@ -1,0 +1,13 @@
+{
+  "name": "Crypto Bot Dev Environment",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "google.gemini-code-assist"
+      ]
+    }
+  },
+  "postCreateCommand": "pip install requests schedule python-telegram-bot pandas"
+}
