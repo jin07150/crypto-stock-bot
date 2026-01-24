@@ -25,7 +25,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -176,12 +176,12 @@ if not check_password():
     st.stop()
 
 # [NEW] 부동산 데이터 캐싱 함수 (여러 단지 조회를 위해 함수 분리)
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=604800) # 7일 캐싱
 def fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd):
     return get_apt_trade_data(service_key, lawd_cd, deal_ymd)
 
-@st.cache_data(ttl=3600)
-def get_period_apt_data(service_key, lawd_cd, months=12):
+@st.cache_data(ttl=604800) # 7일 캐싱
+def get_period_apt_data(service_key, lawd_cd, months=12, _cache_ts=0):
     """최근 n개월간의 아파트 실거래가 데이터를 가져옵니다."""
     if not service_key:
         return pd.DataFrame()
@@ -243,6 +243,10 @@ if 'selected_asset' not in st.session_state:
 # [NEW] 대시보드 아이템 순서 관리
 if 'dashboard_order' not in st.session_state:
     st.session_state['dashboard_order'] = []
+
+# [NEW] 선택적 캐시 삭제를 위한 타임스탬프
+if 'cache_invalidation_ts' not in st.session_state:
+    st.session_state['cache_invalidation_ts'] = {}
 
 # [NEW] 팝오버 강제 닫기를 위한 상태 키
 if 'popover_refresh_key' not in st.session_state:
@@ -657,6 +661,10 @@ with tab1:
     target = st.session_state.get('selected_asset')
     
     if target:
+        lawd_cd_for_cache = None
+        if target['type'] == 'real_estate' and 0 <= target['id'] < len(st.session_state['favorite_apts']):
+            lawd_cd_for_cache = st.session_state['favorite_apts'][target['id']]['lawd_cd']
+
         # 헤더, 기간 선택기, 삭제 버튼을 나란히 배치
         if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
             col_title, col_period, col_del = st.columns([0.3, 0.5, 0.2])
@@ -685,6 +693,12 @@ with tab1:
                     label_visibility="collapsed",
                     key="period_real_estate"
                 )
+            
+            if target['type'] == 'real_estate' and lawd_cd_for_cache:
+                if st.button("🔄 캐시 새로고침"):
+                    st.session_state.setdefault('cache_invalidation_ts', {})[lawd_cd_for_cache] = time.time()
+                    st.toast(f"'{target['label']}' 지역의 캐시가 삭제되었습니다.", icon="🧹")
+                    st.rerun()
         
         with col_del:
             # 현재 선택된 자산 삭제 버튼
@@ -789,7 +803,8 @@ with tab1:
                 if period == "2년": months = 24
                 elif period == "3년": months = 36
                 
-                period_data = get_period_apt_data(service_key, lawd_cd, months=months)
+                ts = st.session_state.get('cache_invalidation_ts', {}).get(lawd_cd, 0)
+                period_data = get_period_apt_data(service_key, lawd_cd, months=months, _cache_ts=ts)
                 
                 if period_data.empty:
                     st.info(f"최근 {period}간 해당 지역의 거래 데이터가 없습니다.")
@@ -1047,7 +1062,8 @@ with tab3:
                                     r_key = st.session_state.get("input_service_key")
                                 
                                 if r_key:
-                                    yearly_df = get_period_apt_data(r_key, apt_info['lawd_cd'], months=12)
+                                    ts = st.session_state.get('cache_invalidation_ts', {}).get(apt_info['lawd_cd'], 0)
+                                    yearly_df = get_period_apt_data(r_key, apt_info['lawd_cd'], months=12, _cache_ts=ts)
                                     if not yearly_df.empty:
                                         apt_df = yearly_df[yearly_df['아파트'] == apt_info['apt_name']]
                                         if not apt_df.empty:
