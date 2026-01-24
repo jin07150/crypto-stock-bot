@@ -19,30 +19,39 @@ def get_apt_trade_data(service_key: str, lawd_cd: str, deal_ymd: str) -> pd.Data
     }
     
     try:
+        print(f"🔍 [API Request] LAWD_CD: {lawd_cd}, DEAL_YMD: {deal_ymd}")
         response = requests.get(url, params=params)
+        
+        print(f"📡 [API Response] Status: {response.status_code}")
+        print(f"🔗 [Full URL]: {response.url}")
         
         # 응답 상태 확인
         if response.status_code != 200:
-            print(f"HTTP Error: {response.status_code}")
-            print(f"Response Body: {response.text}")
+            print(f"❌ [HTTP Error]: {response.status_code}")
+            print(f"📄 [Response Body]: {response.text}")
             return pd.DataFrame()
             
         # XML 파싱
         try:
             root = ET.fromstring(response.content)
         except ET.ParseError as e:
-            print(f"XML Parse Error: {e}")
-            print(f"Response Content: {response.text}")
+            print(f"❌ [XML Parse Error]: {e}")
+            print(f"📄 [Response Content]: {response.text}")
             return pd.DataFrame()
         
         # API 에러 응답 확인
         result_code = root.find("header/resultCode")
         result_msg = root.find("header/resultMsg")
-        if result_code is not None and result_code.text != "00":
-            print(f"API Error: {result_msg.text} (Code: {result_code.text})")
-            return pd.DataFrame()
+        
+        if result_code is not None:
+            print(f"ℹ️ [API Result] Code: {result_code.text}, Msg: {result_msg.text if result_msg is not None else ''}")
+            # 성공 코드가 '00' 또는 '000'일 수 있음
+            if result_code.text not in ["00", "000"]:
+                print(f"❌ [API Error]: {result_msg.text if result_msg is not None else 'Unknown'} (Code: {result_code.text})")
+                return pd.DataFrame()
         
         items = root.findall("body/items/item")
+        print(f"✅ [Data Found]: {len(items)} items")
         
         if not items:
             return pd.DataFrame()
@@ -54,25 +63,25 @@ def get_apt_trade_data(service_key: str, lawd_cd: str, deal_ymd: str) -> pd.Data
                 node = item.find(tag)
                 return node.text.strip() if node is not None and node.text else ""
 
-            # 거래금액 쉼표 제거 및 숫자 변환
-            amount_str = get_text("거래금액").replace(',', '')
+            # 거래금액 쉼표 제거 및 숫자 변환 (태그명 변경: 거래금액 -> dealAmount)
+            amount_str = get_text("dealAmount").replace(',', '')
             amount = int(amount_str) if amount_str.isdigit() else 0
             
-            # 전용면적 float 변환
-            area_str = get_text("전용면적")
+            # 전용면적 float 변환 (태그명 변경: 전용면적 -> excluUseAr)
+            area_str = get_text("excluUseAr")
             area = float(area_str) if area_str else 0.0
 
             data_list.append({
-                "아파트": get_text("아파트"),
-                "법정동": get_text("법정동"),
+                "아파트": get_text("aptNm"),       # 아파트 -> aptNm
+                "법정동": get_text("umdNm"),       # 법정동 -> umdNm
                 "거래금액": amount,
                 "전용면적": area,
-                "층": get_text("층"),
-                "건축년도": get_text("건축년도"),
-                "년": get_text("년"),
-                "월": get_text("월"),
-                "일": get_text("일"),
-                "계약일": f"{get_text('년')}-{get_text('월').zfill(2)}-{get_text('일').zfill(2)}" # 날짜 포맷 통일
+                "층": get_text("floor"),           # 층 -> floor
+                "건축년도": get_text("buildYear"), # 건축년도 -> buildYear
+                "년": get_text("dealYear"),        # 년 -> dealYear
+                "월": get_text("dealMonth"),       # 월 -> dealMonth
+                "일": get_text("dealDay"),         # 일 -> dealDay
+                "계약일": f"{get_text('dealYear')}-{get_text('dealMonth').zfill(2)}-{get_text('dealDay').zfill(2)}"
             })
             
         df = pd.DataFrame(data_list)

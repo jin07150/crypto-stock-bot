@@ -7,6 +7,8 @@ import datetime
 import os
 import time
 import uuid
+import json
+import google.generativeai as genai
 from dotenv import load_dotenv
 from real_estate_loader import get_apt_trade_data, get_district_codes
 
@@ -19,6 +21,46 @@ load_dotenv() # .env 파일 로드
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title="통합 자산 모니터링 대시보드", layout="wide")
+
+# [NEW] 설정 파일 관리 (저장/불러오기)
+CONFIG_FILE = "dashboard_config.json"
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_config():
+    config = {
+        "favorite_apts": st.session_state.get("favorite_apts", []),
+        "selected_coins": st.session_state.get("selected_coins_state", []),
+        "selected_stocks": st.session_state.get("selected_stocks_state", []),
+        "custom_stock": st.session_state.get("custom_stock_state", ""),
+        "dashboard_order": st.session_state.get("dashboard_order", []),
+        "selected_ai_model": st.session_state.get("selected_ai_model", "models/gemini-1.5-flash")
+    }
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"Config save failed: {e}")
+
+# [NEW] 앱 시작 시 설정 불러오기
+if 'init_done' not in st.session_state:
+    config = load_config()
+    if config:
+        st.session_state['favorite_apts'] = config.get('favorite_apts', [])
+        st.session_state['dashboard_order'] = config.get('dashboard_order', [])
+        # 위젯 키에 해당하는 세션 상태를 미리 초기화하여 기본값으로 설정
+        if 'selected_coins' in config: st.session_state['selected_coins_state'] = config['selected_coins']
+        if 'selected_stocks' in config: st.session_state['selected_stocks_state'] = config['selected_stocks']
+        if 'custom_stock' in config: st.session_state['custom_stock_state'] = config['custom_stock']
+        if 'selected_ai_model' in config: st.session_state['selected_ai_model'] = config['selected_ai_model']
+    st.session_state['init_done'] = True
 
 # [NEW] 비밀번호 인증 로직
 def check_password():
@@ -84,6 +126,29 @@ if not check_password():
 def fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd):
     return get_apt_trade_data(service_key, lawd_cd, deal_ymd)
 
+@st.cache_data(ttl=3600)
+def get_yearly_apt_data(service_key, lawd_cd):
+    """최근 12개월간의 아파트 실거래가 데이터를 가져옵니다."""
+    if not service_key:
+        return pd.DataFrame()
+        
+    today = datetime.date.today()
+    all_dfs = []
+    
+    ym_to_fetch = []
+    for i in range(12):
+        current_date = today - pd.DateOffset(months=i)
+        deal_ymd = current_date.strftime("%Y%m")
+        ym_to_fetch.append(deal_ymd)
+
+    with st.spinner(f"'{lawd_cd}' 지역의 최근 1년치 데이터를 불러옵니다..."):
+        for deal_ymd in ym_to_fetch:
+            df_month = fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd)
+            if not df_month.empty:
+                all_dfs.append(df_month)
+    
+    return pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
+
 # [NEW] 업비트 마켓 코드 조회 (코인 검색용)
 @st.cache_data(ttl=86400) # 하루에 한 번만 호출
 def get_upbit_markets():
@@ -99,6 +164,19 @@ def get_upbit_markets():
         return market_dict
     except Exception:
         return {}
+
+# [NEW] Gemini 모델 목록 조회 함수
+@st.cache_data(ttl=3600)
+def get_available_gemini_models(api_key):
+    try:
+        genai.configure(api_key=api_key)
+        models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                models.append(m.name)
+        return models
+    except Exception:
+        return []
 
 # [NEW] 관심 단지 목록 초기화 (세션 상태 사용)
 if 'favorite_apts' not in st.session_state:
@@ -136,7 +214,8 @@ with st.sidebar:
             "코인 선택 (이름 검색 가능)", 
             options=list(coin_market_dict.keys()),
             default=default_coins,
-            key="selected_coins_state" # 세션 상태와 연동
+            key="selected_coins_state", # 세션 상태와 연동
+            on_change=save_config # 변경 시 저장
         )
 
     # 2. Stock 설정
@@ -158,9 +237,10 @@ with st.sidebar:
             "주요 주식 선택",
             options=list(STOCK_RECOMMENDATIONS.keys()),
             default=["삼성전자 (005930.KS)", "애플 (AAPL)", "테슬라 (TSLA)"],
-            key="selected_stocks_state" # 세션 상태와 연동
+            key="selected_stocks_state", # 세션 상태와 연동
+            on_change=save_config # 변경 시 저장
         )
-        custom_stock_input = st.text_input("기타 주식 티커 입력 (콤마로 구분)", placeholder="예: 000270.KS, NFLX", key="custom_stock_state")
+        custom_stock_input = st.text_input("기타 주식 티커 입력 (콤마로 구분)", placeholder="예: 000270.KS, NFLX", key="custom_stock_state", on_change=save_config)
     
     # 3. 부동산 설정
     with st.expander("🏠 부동산 설정", expanded=False):
@@ -170,7 +250,7 @@ with st.sidebar:
             # 환경 변수에서 키를 가져오거나, 없으면 입력창 표시
             env_key = os.getenv("DATA_GO_KR_API_KEY")
             if not env_key:
-                service_key = st.text_input("공공데이터포털 인증키 (Decoding)", type="password", help=".env 파일에 DATA_GO_KR_API_KEY가 없습니다.")
+                service_key = st.text_input("공공데이터포털 인증키 (Decoding)", type="password", help=".env 파일에 DATA_GO_KR_API_KEY가 없습니다.", key="input_service_key")
             else:
                 service_key = env_key
             
@@ -192,7 +272,7 @@ with st.sidebar:
             else:
                 target_lawd = st.text_input("부동산 지역 코드", value="11680")
 
-            target_date = st.date_input("조회 기준일", datetime.date(2024, 1, 1))
+            target_date = st.date_input("조회 기준일", datetime.date.today())
             
             # 부동산 데이터 로딩 (설정값이 다 있을 때만)
             # [변경] 선택한 조건을 즐겨찾기에 추가하는 로직으로 변경
@@ -257,6 +337,7 @@ with st.sidebar:
                                 "deal_ymd": deal_ymd
                             }
                             st.session_state['favorite_apts'].append(item)
+                            save_config() # 저장
                             st.success(f"'{selected_apt}' 추가됨")
                         else:
                             st.warning("이미 목록에 있습니다.")
@@ -272,7 +353,36 @@ with st.sidebar:
                     col1.text(f"{item['apt_name']}\n({item['region_name']})")
                     if col2.button("🗑️", key=f"del_{i}"):
                         st.session_state['favorite_apts'].pop(i)
+                        save_config() # 저장
                         st.rerun()
+
+    # 4. AI 설정
+    with st.expander("🤖 AI 설정", expanded=False):
+        env_gemini_key = os.getenv("GEMINI_API_KEY")
+        if not env_gemini_key:
+            gemini_api_key = st.text_input("Gemini API Key", type="password", help="Google AI Studio에서 발급받은 키를 입력하세요.", key="gemini_api_key_input")
+        else:
+            gemini_api_key = env_gemini_key
+
+        if gemini_api_key:
+            available_models = get_available_gemini_models(gemini_api_key)
+            
+            if available_models:
+                # 세션 상태에 모델이 없거나 유효하지 않으면 기본값 설정
+                if 'selected_ai_model' not in st.session_state or st.session_state['selected_ai_model'] not in available_models:
+                    # 선호하는 모델 우선순위
+                    preferred = ['models/gemini-1.5-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-pro']
+                    default_model = available_models[0]
+                    for p in preferred:
+                        if p in available_models:
+                            default_model = p
+                            break
+                    st.session_state['selected_ai_model'] = default_model
+
+                st.selectbox("사용할 AI 모델 선택", available_models, key="selected_ai_model", on_change=save_config)
+            else:
+                st.warning("사용 가능한 모델을 불러올 수 없습니다. API 키를 확인해주세요.")
+
 
     st.divider()
     if st.button("데이터 새로고침"):
@@ -453,6 +563,7 @@ with st.sidebar:
             label_to_key = {m['label']: m['key'] for m in ordered_metrics}
             new_order = [label_to_key[lbl] for lbl in sorted_labels if lbl in label_to_key]
             st.session_state['dashboard_order'] = new_order
+            save_config() # 순서 변경 저장
             st.rerun()
     elif not sort_items:
         st.warning("'streamlit-sortables' 라이브러리가 필요합니다.")
@@ -488,17 +599,25 @@ with tab1:
     
     if target:
         # 헤더, 기간 선택기, 삭제 버튼을 나란히 배치
-        col_title, col_period, col_del = st.columns([0.3, 0.5, 0.2])
+        if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
+            col_title, col_period, col_del = st.columns([0.3, 0.5, 0.2])
+        else: # 부동산
+            col_title, col_del = st.columns([0.8, 0.2])
+
         with col_title:
             st.markdown(f"### {target['label']}")
-        with col_period:
-            period = st.radio(
-                "조회 기간", 
-                ["1주일", "1개월", "3개월", "1년", "5년", "10년", "전체"], 
-                index=3, 
-                horizontal=True,
-                label_visibility="collapsed"
-            )
+
+        # 기간 선택기는 코인/주식에만 표시
+        if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
+            with col_period:
+                period = st.radio(
+                    "조회 기간", 
+                    ["1주일", "1개월", "3개월", "1년", "5년", "10년", "전체"], 
+                    index=3, 
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+        
         with col_del:
             # 현재 선택된 자산 삭제 버튼
             if st.button("대시보드에서 삭제", key="del_current_asset", type="primary"):
@@ -506,6 +625,7 @@ with tab1:
                 if metric["type"] == "coin":
                     if metric["id"] in st.session_state['selected_coins_state']:
                         st.session_state['selected_coins_state'].remove(metric["id"])
+                        save_config()
                 elif metric["type"] == "stock_rec":
                     if metric["id"] in st.session_state['selected_stocks_state']:
                         st.session_state['selected_stocks_state'].remove(metric["id"])
@@ -515,10 +635,12 @@ with tab1:
                     if metric["id"] in tickers:
                         tickers.remove(metric["id"])
                     st.session_state['custom_stock_state'] = ", ".join(tickers)
+                    save_config()
                 elif metric["type"] == "real_estate":
                     # 인덱스 유효성 확인 후 삭제
                     if 0 <= metric["id"] < len(st.session_state['favorite_apts']):
                         st.session_state['favorite_apts'].pop(metric["id"])
+                        save_config()
                 
                 st.session_state['selected_asset'] = None
                 st.rerun()
@@ -585,24 +707,65 @@ with tab1:
 
         # 3. 부동산 차트 (최근 거래 내역)
         elif target['type'] == 'real_estate':
-            if period != "1개월":
-                st.caption("ℹ️ 부동산 데이터는 설정된 '조회 기준일'의 월간 데이터만 표시됩니다.")
+            st.caption("ℹ️ 부동산 차트는 최근 1년간의 평형별 실거래가 추이를 보여줍니다.")
+            
+            # 인덱스 유효성 확인
+            if not (use_real_estate and 0 <= target['id'] < len(st.session_state['favorite_apts'])):
+                st.warning("선택된 부동산 정보를 찾을 수 없습니다. 목록에서 삭제되었을 수 있습니다.")
+            else:
+                apt_info = st.session_state['favorite_apts'][target['id']]
+                apt_name = apt_info['apt_name']
+                lawd_cd = apt_info['lawd_cd']
                 
-            if use_real_estate and not df_display.empty:
-                # 현재 로드된 데이터 중 해당 아파트 데이터만 필터링
-                # (참고: API 구조상 과거 전체 내역을 가져오려면 추가 호출이 필요하지만, 여기선 현재 로드된 데이터로 시각화)
-                apt_name = st.session_state['favorite_apts'][target['id']]['apt_name']
-                chart_data = df_display[df_display['아파트'] == apt_name].copy()
-                if not chart_data.empty:
-                    chart_data['계약일_full'] = chart_data['계약일'].astype(str) # 간단한 시각화를 위해 문자열로 처리
-                    
-                    fig = px.bar(chart_data, x='계약일_full', y='거래금액', title=f"{target['label']} 거래 내역")
-                    fig.update_layout(hovermode="x unified")
-                    st.plotly_chart(fig, use_container_width=True)
+                yearly_data = get_yearly_apt_data(service_key, lawd_cd)
+                
+                if yearly_data.empty:
+                    st.info("최근 1년간 해당 지역의 거래 데이터가 없습니다.")
                 else:
-                    st.info("표시할 거래 내역이 없습니다.")
+                    apt_yearly_data = yearly_data[yearly_data['아파트'] == apt_name].copy()
+                    
+                    if apt_yearly_data.empty:
+                        st.info(f"최근 1년간 '{apt_name}'의 거래 데이터가 없습니다.")
+                    else:
+                        # 데이터 전처리
+                        apt_yearly_data['평형'] = round(apt_yearly_data['전용면적'] / 3.3058, 1)
+                        bins = [0, 20, 30, 40, 50, 60, 1000]
+                        labels = ['20평 미만', '20평대', '30평대', '40평대', '50평대', '60평 이상']
+                        apt_yearly_data['평형대'] = pd.cut(apt_yearly_data['평형'], bins=bins, labels=labels, right=False)
+                        apt_yearly_data['계약일'] = pd.to_datetime(apt_yearly_data['계약일'])
+                        
+                        # [NEW] 전용면적별 데이터 나열
+                        unique_areas = sorted(apt_yearly_data['전용면적'].unique())
+                        
+                        for area in unique_areas:
+                            area_py = round(area/3.3058, 1)
+                            st.markdown(f"### 📐 전용면적 {area}㎡ ({area_py}평)")
+                            
+                            # 해당 전용면적 데이터 필터링
+                            filtered_df = apt_yearly_data[apt_yearly_data['전용면적'] == area].copy()
+                            
+                            # 거래금액 억원 변환
+                            filtered_df['거래금액_억'] = filtered_df['거래금액'] / 10000
+                            
+                            st.write("#### 실거래가 분포 (최근 1년)")
+                            fig = px.scatter(
+                                filtered_df.sort_values('계약일'), 
+                                x='계약일', y='거래금액_억', 
+                                hover_data=['층', '전용면적', '평형', '거래금액'], title=f"{apt_name} {area}㎡ 실거래가"
+                            )
+                            fig.update_layout(yaxis_title="거래금액 (억원)", xaxis_title="계약일")
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            st.write("#### 상세 거래 내역")
+                            filtered_df['거래금액(억)'] = filtered_df['거래금액_억'].apply(lambda x: f"{x:.2f}억")
+                            st.dataframe(
+                                filtered_df[['계약일', '거래금액(억)', '전용면적', '평형', '층']].sort_values('계약일', ascending=False),
+                                width="stretch",
+                                hide_index=True
+                            )
+                            st.divider()
     else:
-        st.info("👆 대시보드 카드의 메뉴(⋮)에서 '차트 보기'를 선택하면 상세 그래프가 표시됩니다.")
+        st.info("👆 대시보드에서 항목을 클릭하면 상세 차트가 표시됩니다.")
     
 with tab2:
     st.subheader("상세 정보 및 뉴스")
@@ -718,8 +881,100 @@ with tab2:
         st.info("👆 대시보드에서 항목을 선택하면 상세 정보와 뉴스를 확인할 수 있습니다.")
 
 with tab3:
-    st.subheader("💡 Gemini의 투자 조언")
-    st.write("여기에 Gemini API를 연결하면 현재 가격 정보를 바탕으로 분석 리포트를 생성할 수 있습니다.")
+    st.subheader("🤖 AI 투자 분석 리포트")
+    
+    # Gemini API Key 확인
+    if not gemini_api_key:
+        st.warning("⚠️ Gemini API Key가 설정되지 않았습니다. 사이드바의 'AI 설정'에서 키를 입력하거나 .env 파일에 GEMINI_API_KEY를 설정해주세요.")
+    else:
+        target = st.session_state.get('selected_asset')
+        
+        if target and target.get('type') != 'info':
+            st.markdown(f"### 📊 {target['label']} 심층 분석")
+            
+            if st.button("AI 리포트 생성하기 ✨", type="primary", use_container_width=True):
+                with st.spinner(f"Gemini가 {target['label']} 데이터를 분석하고 있습니다..."):
+                    try:
+                        # 컨텍스트 데이터 수집
+                        context_text = f"자산명: {target['label']}\n현재가: {target['value']}\n변동률: {target['delta']}\n"
+                        
+                        # 1. 코인 데이터 추가 수집
+                        if target['type'] == 'coin':
+                            coin_market_dict = get_upbit_markets()
+                            ticker = coin_market_dict.get(target['id'])
+                            if ticker:
+                                url = f"https://api.upbit.com/v1/candles/days?market={ticker}&count=7"
+                                candles = requests.get(url).json()
+                                context_text += "\n[최근 7일 가격 추이]\n"
+                                for c in candles:
+                                    context_text += f"날짜: {c['candle_date_time_kst'][:10]}, 종가: {c['trade_price']}, 등락률: {c['change_rate']*100:.2f}%\n"
+
+                        # 2. 주식 데이터 추가 수집
+                        elif target['type'] in ['stock_rec', 'stock_custom']:
+                            ticker = target['id']
+                            if target['type'] == 'stock_rec':
+                                ticker = STOCK_RECOMMENDATIONS.get(target['id'], target['id'])
+                            
+                            stock = yf.Ticker(ticker)
+                            hist = stock.history(period="1mo")
+                            context_text += "\n[최근 1개월 주가 추이 요약]\n"
+                            context_text += f"최고가: {hist['High'].max()}\n최저가: {hist['Low'].min()}\n평균가: {hist['Close'].mean()}\n"
+                            
+                            # 뉴스 헤드라인 추가
+                            news = stock.news
+                            if news:
+                                context_text += "\n[최근 관련 뉴스 헤드라인]\n"
+                                for n in news[:3]:
+                                    context_text += f"- {n['title']}\n"
+
+                        # 3. 부동산 데이터 추가 수집
+                        elif target['type'] == 'real_estate':
+                            if 0 <= target['id'] < len(st.session_state['favorite_apts']):
+                                apt_info = st.session_state['favorite_apts'][target['id']]
+                                
+                                # API Key 확보
+                                r_key = os.getenv("DATA_GO_KR_API_KEY")
+                                if not r_key:
+                                    r_key = st.session_state.get("input_service_key")
+                                
+                                if r_key:
+                                    yearly_df = get_yearly_apt_data(r_key, apt_info['lawd_cd'])
+                                    if not yearly_df.empty:
+                                        apt_df = yearly_df[yearly_df['아파트'] == apt_info['apt_name']]
+                                        if not apt_df.empty:
+                                            context_text += f"\n[최근 1년 거래 요약]\n"
+                                            context_text += f"총 거래량: {len(apt_df)}건\n"
+                                            context_text += f"최고 실거래가: {apt_df['거래금액'].max()}만원\n"
+                                            context_text += f"최저 실거래가: {apt_df['거래금액'].min()}만원\n"
+                                            context_text += f"최근 거래일: {apt_df['계약일'].max()}\n"
+
+                        # Gemini 호출
+                        genai.configure(api_key=gemini_api_key)
+                        model_name = st.session_state.get('selected_ai_model', 'models/gemini-1.5-flash')
+                        model = genai.GenerativeModel(model_name)
+                        
+                        prompt = f"""
+                        당신은 금융 및 부동산 투자 전문가입니다. 아래 제공된 자산 데이터를 바탕으로 투자 분석 리포트를 작성해주세요.
+                        
+                        [분석 대상 데이터]
+                        {context_text}
+                        
+                        [요청 사항]
+                        1. 현재 시장 상황 분석 (가격 흐름 및 변동성)
+                        2. 주요 긍정적/부정적 요인 분석
+                        3. 향후 전망 및 투자 전략 (매수/매도/관망 의견 포함)
+                        4. 리스크 요인
+                        
+                        마크다운 형식으로 가독성 있게 작성해주세요.
+                        """
+                        
+                        response = model.generate_content(prompt)
+                        st.markdown(response.text)
+                        
+                    except Exception as e:
+                        st.error(f"리포트 생성 중 오류가 발생했습니다: {e}")
+        else:
+            st.info("👆 대시보드에서 분석할 자산 항목을 선택해주세요.")
 
 # 스타일링
 st.markdown("""
