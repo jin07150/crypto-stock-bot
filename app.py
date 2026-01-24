@@ -6,8 +6,14 @@ import plotly.express as px
 import datetime
 import os
 import time
+import uuid
 from dotenv import load_dotenv
 from real_estate_loader import get_apt_trade_data, get_district_codes
+
+try:
+    from streamlit_sortables import sort_items
+except ImportError:
+    sort_items = None
 
 load_dotenv() # .env 파일 로드
 
@@ -102,6 +108,10 @@ if 'favorite_apts' not in st.session_state:
 if 'selected_asset' not in st.session_state:
     st.session_state['selected_asset'] = None
 
+# [NEW] 대시보드 아이템 순서 관리
+if 'dashboard_order' not in st.session_state:
+    st.session_state['dashboard_order'] = []
+
 # [NEW] 팝오버 강제 닫기를 위한 상태 키
 if 'popover_refresh_key' not in st.session_state:
     st.session_state['popover_refresh_key'] = 0
@@ -157,7 +167,12 @@ with st.sidebar:
         use_real_estate = st.checkbox("부동산 모니터링 활성화", value=True)
         
         if use_real_estate:
-            service_key = os.getenv("SERVICE_KEY")
+            # 환경 변수에서 키를 가져오거나, 없으면 입력창 표시
+            env_key = os.getenv("DATA_GO_KR_API_KEY")
+            if not env_key:
+                service_key = st.text_input("공공데이터포털 인증키 (Decoding)", type="password", help=".env 파일에 DATA_GO_KR_API_KEY가 없습니다.")
+            else:
+                service_key = env_key
             
             # 지역 코드 데이터 로드
             @st.cache_data
@@ -184,26 +199,69 @@ with st.sidebar:
             if service_key and target_lawd:
                 deal_ymd = target_date.strftime("%Y%m")
                 # 캐싱된 함수 사용하여 임시 데이터 로드
-                df_temp = fetch_apt_trade_data_cached(service_key, target_lawd, deal_ymd)
+                with st.spinner("데이터 조회 중..."):
+                    df_temp = fetch_apt_trade_data_cached(service_key, target_lawd, deal_ymd)
                 
+                # 데이터 유무와 상관없이 selectbox 표시 (UX 개선)
+                apt_list = []
                 if not df_temp.empty:
                     apt_list = sorted(df_temp['아파트'].unique().tolist())
-                    selected_apt = st.selectbox("아파트 단지 선택", apt_list)
+                
+                selected_apt = st.selectbox(
+                    "아파트 단지 선택", 
+                    apt_list, 
+                    index=None, 
+                    placeholder="데이터 조회 결과가 없습니다" if not apt_list else "아파트 이름을 검색하세요",
+                    disabled=not apt_list
+                )
+                
+                if not apt_list:
+                    st.warning("데이터가 없습니다. API 키(Decoding)가 올바른지 확인하거나 터미널 로그를 확인해주세요.")
+                
+                if selected_apt:
+                    # 선택된 아파트 데이터 필터링 및 정렬 (최신순)
+                    apt_df = df_temp[df_temp['아파트'] == selected_apt].sort_values(by='계약일', ascending=False)
+                    
+                    # 선택된 아파트의 거래 건수 표시
+                    trade_count = len(apt_df)
+                    st.caption(f"해당 기간 거래 건수: {trade_count}건")
+                    
+                    # [NEW] 최근 실거래가 프리뷰
+                    if not apt_df.empty:
+                        latest = apt_df.iloc[0]
+                        st.info(f"💡 최근 실거래가: {latest['거래금액']:,}만원 ({latest['계약일']}, {latest['층']}층, {latest['전용면적']}㎡)")
+                        
+                        with st.expander("📋 상세 거래 내역 미리보기"):
+                            st.dataframe(
+                                apt_df[['계약일', '거래금액', '전용면적', '층']], 
+                                width="stretch",
+                                hide_index=True
+                            )
                     
                     if st.button("관심 단지 추가 ➕"):
-                        item = {
-                            "lawd_cd": target_lawd,
-                            "region_name": f"{selected_sido} {selected_sigungu}",
-                            "apt_name": selected_apt,
-                            "deal_ymd": deal_ymd
-                        }
-                        if item not in st.session_state['favorite_apts']:
+                        # 중복 확인 (ID 제외하고 내용으로 비교)
+                        is_duplicate = False
+                        for fav in st.session_state['favorite_apts']:
+                            if (fav['lawd_cd'] == target_lawd and 
+                                fav['apt_name'] == selected_apt and 
+                                fav['deal_ymd'] == deal_ymd):
+                                is_duplicate = True
+                                break
+                        
+                        if not is_duplicate:
+                            item = {
+                                "id": str(uuid.uuid4()), # 고유 ID 생성
+                                "lawd_cd": target_lawd,
+                                "region_name": f"{selected_sido} {selected_sigungu}",
+                                "apt_name": selected_apt,
+                                "deal_ymd": deal_ymd
+                            }
                             st.session_state['favorite_apts'].append(item)
                             st.success(f"'{selected_apt}' 추가됨")
                         else:
                             st.warning("이미 목록에 있습니다.")
-                else:
-                    st.warning("해당 조건의 데이터가 없습니다.")
+            elif not service_key:
+                st.warning("⚠️ 공공데이터포털 인증키가 필요합니다.")
 
             # [NEW] 관심 목록 표시 및 삭제 기능
             if st.session_state['favorite_apts']:
@@ -268,7 +326,8 @@ for name in selected_coins:
             "value": f"{price:,.0f} KRW",
             "delta": f"{change:.2f}%",
             "type": "coin",
-            "id": name
+            "id": name,
+            "key": f"coin:{name}"
         })
 
 # 2. 주식 데이터 수집
@@ -290,7 +349,8 @@ for name in selected_stocks:
             "value": value_fmt,
             "delta": f"{change:.2f}%",
             "type": "stock_rec",
-            "id": name
+            "id": name,
+            "key": f"stock_rec:{name}"
         })
 
 if custom_stock_input:
@@ -311,52 +371,96 @@ if custom_stock_input:
             "value": value_fmt,
             "delta": f"{change:.2f}%",
             "type": "stock_custom",
-            "id": ticker
+            "id": ticker,
+            "key": f"stock_custom:{ticker}"
         })
 
 # 3. 부동산 데이터 수집
 df_display = pd.DataFrame() # 상세 데이터 탭을 위한 통합 데이터프레임
 
 if use_real_estate:
-    service_key = os.getenv("SERVICE_KEY")
     if st.session_state['favorite_apts']:
-        for idx, item in enumerate(st.session_state['favorite_apts']):
-            # 각 관심 단지별 데이터 로드
-            df = fetch_apt_trade_data_cached(service_key, item['lawd_cd'], item['deal_ymd'])
-            
-            if not df.empty:
-                # 해당 아파트만 필터링
-                apt_df = df[df['아파트'] == item['apt_name']]
-                if not apt_df.empty:
-                    # 상세 데이터 병합
-                    df_display = pd.concat([df_display, apt_df], ignore_index=True)
-                    
-                    # 메트릭(요약) 추가
-                    recent = apt_df.iloc[0] # 최신 거래
-                    metrics_data.append({
-                        "label": f"🏠 {item['apt_name']}",
-                        "value": f"{recent['거래금액']:,} 만원",
-                        "delta": f"{recent['층']}층 ({recent['전용면적']}㎡)",
-                        "type": "real_estate",
-                        "id": idx
-                    })
+        with st.spinner("부동산 데이터 업데이트 중..."):
+            for idx, item in enumerate(st.session_state['favorite_apts']):
+                # 기존 데이터에 ID가 없는 경우 호환성 처리
+                if 'id' not in item: item['id'] = str(uuid.uuid4())
+                
+                # 각 관심 단지별 데이터 로드
+                df = fetch_apt_trade_data_cached(service_key, item['lawd_cd'], item['deal_ymd'])
+                
+                if not df.empty:
+                    # 해당 아파트만 필터링
+                    apt_df = df[df['아파트'] == item['apt_name']]
+                    if not apt_df.empty:
+                        # 상세 데이터 병합
+                        df_display = pd.concat([df_display, apt_df], ignore_index=True)
+                        
+                        # 메트릭(요약) 추가
+                        recent = apt_df.iloc[0] # 최신 거래
+                        metrics_data.append({
+                            "label": f"🏠 {item['apt_name']}",
+                            "value": f"{recent['거래금액']:,} 만원",
+                            "delta": f"{recent['층']}층 ({recent['전용면적']}㎡)",
+                            "type": "real_estate",
+                            "id": idx,
+                            "key": f"real_estate:{item['id']}"
+                        })
+                    else:
+                        metrics_data.append({"label": f"🏠 {item['apt_name']}", "value": "거래 없음", "delta": "-", "type": "real_estate", "id": idx, "key": f"real_estate:{item['id']}"})
                 else:
-                    metrics_data.append({"label": f"🏠 {item['apt_name']}", "value": "거래 없음", "delta": "-", "type": "real_estate", "id": idx})
-            else:
-                metrics_data.append({"label": f"🏠 {item['apt_name']}", "value": "데이터 없음", "delta": "API 확인", "type": "real_estate", "id": idx})
+                    metrics_data.append({"label": f"🏠 {item['apt_name']}", "value": "데이터 없음", "delta": "API 확인", "type": "real_estate", "id": idx, "key": f"real_estate:{item['id']}"})
     else:
         metrics_data.append({
             "label": "🏠 부동산",
             "value": "관심 단지 없음",
             "delta": "설정에서 추가",
             "type": "info",
-            "id": None
+            "id": None,
+            "key": "info:real_estate"
         })
 
+# [NEW] 순서 동기화 및 정렬
+# 1. 현재 존재하는 모든 키 수집
+current_keys = [m['key'] for m in metrics_data]
+
+# 2. 세션에 저장된 순서 리스트 업데이트 (삭제된 항목 제거)
+st.session_state['dashboard_order'] = [k for k in st.session_state['dashboard_order'] if k in current_keys]
+
+# 3. 새로운 항목을 순서 리스트 끝에 추가
+for k in current_keys:
+    if k not in st.session_state['dashboard_order']:
+        st.session_state['dashboard_order'].append(k)
+
+# 4. 저장된 순서대로 metrics_data 정렬
+metrics_map = {m['key']: m for m in metrics_data}
+ordered_metrics = []
+for k in st.session_state['dashboard_order']:
+    if k in metrics_map:
+        ordered_metrics.append(metrics_map[k])
+
+# [NEW] 사이드바에 드래그 앤 드롭 순서 변경 위젯 추가
+with st.sidebar:
+    st.divider()
+    st.subheader("⇅ 순서 변경")
+    if sort_items and ordered_metrics:
+        # 현재 표시된 라벨 목록 생성
+        labels = [m['label'] for m in ordered_metrics]
+        # 드래그 앤 드롭 위젯 표시
+        sorted_labels = sort_items(labels)
+        
+        # 순서가 변경되었다면 세션 상태 업데이트
+        if sorted_labels != labels:
+            label_to_key = {m['label']: m['key'] for m in ordered_metrics}
+            new_order = [label_to_key[lbl] for lbl in sorted_labels if lbl in label_to_key]
+            st.session_state['dashboard_order'] = new_order
+            st.rerun()
+    elif not sort_items:
+        st.warning("'streamlit-sortables' 라이브러리가 필요합니다.")
+
 # 동적 그리드 레이아웃 (3열)
-if metrics_data:
+if ordered_metrics:
     cols = st.columns(3)
-    for i, metric in enumerate(metrics_data):
+    for i, metric in enumerate(ordered_metrics):
         with cols[i % 3]:
             # 정보성 메시지인 경우 (삭제/차트 기능 없음)
             if metric.get("type") == "info":
@@ -391,7 +495,7 @@ with tab1:
             period = st.radio(
                 "조회 기간", 
                 ["1주일", "1개월", "3개월", "1년", "5년", "10년", "전체"], 
-                index=1, 
+                index=3, 
                 horizontal=True,
                 label_visibility="collapsed"
             )
@@ -595,7 +699,7 @@ with tab2:
                     st.write(f"**{apt_name} 실거래 내역**")
                     # 해당 아파트 데이터 필터링
                     apt_df = df_display[df_display['아파트'] == apt_name]
-                    st.dataframe(apt_df, use_container_width=True)
+                    st.dataframe(apt_df, width="stretch")
                     
                     st.divider()
                     st.subheader("관련 정보")

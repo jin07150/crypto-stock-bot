@@ -4,3 +4,4 @@ yfinance
 requests
 plotly
 python-dotenv
+streamlit-sortables
