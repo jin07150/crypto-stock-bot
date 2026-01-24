@@ -13,6 +13,42 @@ load_dotenv() # .env 파일 로드
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title="통합 자산 모니터링 대시보드", layout="wide")
 
+# [NEW] 비밀번호 인증 로직
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    # .env 파일이나 Secrets에 APP_PASSWORD가 설정되어 있지 않으면 인증 없이 통과 (개발 편의성)
+    password = os.getenv("APP_PASSWORD")
+    if not password:
+        return True
+
+    def password_entered():
+        if st.session_state["password"] == password:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"] # 보안을 위해 세션에서 비밀번호 삭제
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # 처음 접속 시
+        st.text_input(
+            "🔐 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # 비밀번호 불일치
+        st.text_input(
+            "🔐 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password"
+        )
+        st.error("비밀번호가 틀렸습니다.")
+        return False
+    else:
+        # 인증 성공
+        return True
+
+if not check_password():
+    st.stop()
+
 # [NEW] 부동산 데이터 캐싱 함수 (여러 단지 조회를 위해 함수 분리)
 @st.cache_data(ttl=3600)
 def fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd):
