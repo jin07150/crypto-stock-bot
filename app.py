@@ -5,6 +5,7 @@ import requests
 import plotly.express as px
 import datetime
 import os
+import time
 from dotenv import load_dotenv
 from real_estate_loader import get_apt_trade_data, get_district_codes
 
@@ -22,12 +23,29 @@ def check_password():
     if not password:
         return True
 
+    # 세션 상태 초기화 (입력 시도 횟수 및 차단 시간)
+    if "password_attempts" not in st.session_state:
+        st.session_state["password_attempts"] = 0
+    if "block_until" not in st.session_state:
+        st.session_state["block_until"] = 0
+
+    # 차단 여부 확인
+    if time.time() < st.session_state["block_until"]:
+        remaining = int(st.session_state["block_until"] - time.time())
+        st.error(f"⚠️ 입력 횟수 초과! {remaining}초 후에 다시 시도해주세요.")
+        return False
+
     def password_entered():
         if st.session_state["password"] == password:
             st.session_state["password_correct"] = True
+            st.session_state["password_attempts"] = 0
             del st.session_state["password"] # 보안을 위해 세션에서 비밀번호 삭제
         else:
             st.session_state["password_correct"] = False
+            st.session_state["password_attempts"] += 1
+            if st.session_state["password_attempts"] >= 5:
+                st.session_state["block_until"] = time.time() + 30
+                st.session_state["password_attempts"] = 0
 
     if "password_correct" not in st.session_state:
         # 처음 접속 시
@@ -36,11 +54,17 @@ def check_password():
         )
         return False
     elif not st.session_state["password_correct"]:
+        # 방금 실패하여 차단된 경우 처리
+        if time.time() < st.session_state["block_until"]:
+            remaining = int(st.session_state["block_until"] - time.time())
+            st.error(f"⚠️ 입력 횟수 초과! {remaining}초 후에 다시 시도해주세요.")
+            return False
+            
         # 비밀번호 불일치
         st.text_input(
             "🔐 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password"
         )
-        st.error("비밀번호가 틀렸습니다.")
+        st.error(f"비밀번호가 틀렸습니다. ({st.session_state['password_attempts']}/5회 시도)")
         return False
     else:
         # 인증 성공
