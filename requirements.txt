@@ -6,3 +6,4 @@ plotly
 python-dotenv
 streamlit-sortables
 google-generativeai
+PyGithub

@@ -9,5 +9,5 @@
       ]
     }
   },
-  "postCreateCommand": "pip install requests pandas streamlit plotly yfinance"
+  "postCreateCommand": "pip install -r requirements.txt"
 }

@@ -9,6 +9,11 @@ import time
 import uuid
 import json
 import google.generativeai as genai
+try:
+    from github import Github, InputFileContent
+except ImportError:
+    Github = None
+    InputFileContent = None
 from dotenv import load_dotenv
 from real_estate_loader import get_apt_trade_data, get_district_codes
 
@@ -25,7 +30,29 @@ st.set_page_config(page_title="통합 자산 모니터링 대시보드", layout=
 # [NEW] 설정 파일 관리 (저장/불러오기)
 CONFIG_FILE = "dashboard_config.json"
 
+# [NEW] GitHub Gist 연동 헬퍼 함수
+def get_gist(gh_client):
+    user = gh_client.get_user()
+    # 사용자의 Gist 중 설정 파일이 포함된 Gist를 찾음
+    for gist in user.get_gists():
+        if CONFIG_FILE in gist.files:
+            return gist
+    return None
+
 def load_config():
+    # 1. GitHub Gist에서 로드 시도 (영구 저장소)
+    token = os.getenv("GITHUB_TOKEN")
+    if token and Github:
+        try:
+            gh = Github(token)
+            gist = get_gist(gh)
+            if gist:
+                content = gist.files[CONFIG_FILE].content
+                return json.loads(content)
+        except Exception as e:
+            print(f"Gist load error: {e}")
+
+    # 2. 로컬 파일에서 로드 (Fallback)
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -43,6 +70,30 @@ def save_config():
         "dashboard_order": st.session_state.get("dashboard_order", []),
         "selected_ai_model": st.session_state.get("selected_ai_model", "models/gemini-1.5-flash")
     }
+    
+    # 1. GitHub Gist에 저장 시도 (영구 저장소)
+    token = os.getenv("GITHUB_TOKEN")
+    if token and Github:
+        try:
+            gh = Github(token)
+            gist = get_gist(gh)
+            json_content = json.dumps(config, ensure_ascii=False, indent=4)
+            
+            if gist:
+                # 기존 Gist 업데이트
+                gist.edit(files={CONFIG_FILE: InputFileContent(json_content)})
+            else:
+                # Gist가 없으면 새로 생성 (비공개)
+                user = gh.get_user()
+                user.create_gist(
+                    public=False, 
+                    files={CONFIG_FILE: InputFileContent(json_content)}, 
+                    description="Crypto Stock Bot Dashboard Config"
+                )
+        except Exception as e:
+            print(f"Gist save error: {e}")
+
+    # 2. 로컬 파일에 저장 (캐시 용도)
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
@@ -127,8 +178,8 @@ def fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd):
     return get_apt_trade_data(service_key, lawd_cd, deal_ymd)
 
 @st.cache_data(ttl=3600)
-def get_yearly_apt_data(service_key, lawd_cd):
-    """최근 12개월간의 아파트 실거래가 데이터를 가져옵니다."""
+def get_period_apt_data(service_key, lawd_cd, months=12):
+    """최근 n개월간의 아파트 실거래가 데이터를 가져옵니다."""
     if not service_key:
         return pd.DataFrame()
         
@@ -136,12 +187,12 @@ def get_yearly_apt_data(service_key, lawd_cd):
     all_dfs = []
     
     ym_to_fetch = []
-    for i in range(12):
+    for i in range(months):
         current_date = today - pd.DateOffset(months=i)
         deal_ymd = current_date.strftime("%Y%m")
         ym_to_fetch.append(deal_ymd)
 
-    with st.spinner(f"'{lawd_cd}' 지역의 최근 1년치 데이터를 불러옵니다..."):
+    with st.spinner(f"'{lawd_cd}' 지역의 최근 {months}개월 데이터를 불러옵니다..."):
         for deal_ymd in ym_to_fetch:
             df_month = fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd)
             if not df_month.empty:
@@ -602,20 +653,29 @@ with tab1:
         if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
             col_title, col_period, col_del = st.columns([0.3, 0.5, 0.2])
         else: # 부동산
-            col_title, col_del = st.columns([0.8, 0.2])
+            col_title, col_period, col_del = st.columns([0.3, 0.5, 0.2])
 
         with col_title:
             st.markdown(f"### {target['label']}")
 
-        # 기간 선택기는 코인/주식에만 표시
-        if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
-            with col_period:
+        with col_period:
+            if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
                 period = st.radio(
                     "조회 기간", 
                     ["1주일", "1개월", "3개월", "1년", "5년", "10년", "전체"], 
                     index=3, 
                     horizontal=True,
-                    label_visibility="collapsed"
+                    label_visibility="collapsed",
+                    key="period_crypto_stock"
+                )
+            elif target['type'] == 'real_estate':
+                period = st.radio(
+                    "조회 기간",
+                    ["1년", "2년", "3년"],
+                    index=0,
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key="period_real_estate"
                 )
         
         with col_del:
@@ -707,7 +767,7 @@ with tab1:
 
         # 3. 부동산 차트 (최근 거래 내역)
         elif target['type'] == 'real_estate':
-            st.caption("ℹ️ 부동산 차트는 최근 1년간의 평형별 실거래가 추이를 보여줍니다.")
+            st.caption(f"ℹ️ 부동산 차트는 최근 {period}간의 평형별 실거래가 추이를 보여줍니다.")
             
             # 인덱스 유효성 확인
             if not (use_real_estate and 0 <= target['id'] < len(st.session_state['favorite_apts'])):
@@ -717,53 +777,94 @@ with tab1:
                 apt_name = apt_info['apt_name']
                 lawd_cd = apt_info['lawd_cd']
                 
-                yearly_data = get_yearly_apt_data(service_key, lawd_cd)
+                months = 12
+                if period == "2년": months = 24
+                elif period == "3년": months = 36
                 
-                if yearly_data.empty:
-                    st.info("최근 1년간 해당 지역의 거래 데이터가 없습니다.")
+                period_data = get_period_apt_data(service_key, lawd_cd, months=months)
+                
+                if period_data.empty:
+                    st.info(f"최근 {period}간 해당 지역의 거래 데이터가 없습니다.")
                 else:
-                    apt_yearly_data = yearly_data[yearly_data['아파트'] == apt_name].copy()
+                    apt_period_data = period_data[period_data['아파트'] == apt_name].copy()
                     
-                    if apt_yearly_data.empty:
-                        st.info(f"최근 1년간 '{apt_name}'의 거래 데이터가 없습니다.")
+                    if apt_period_data.empty:
+                        st.info(f"최근 {period}간 '{apt_name}'의 거래 데이터가 없습니다.")
                     else:
                         # 데이터 전처리
-                        apt_yearly_data['평형'] = round(apt_yearly_data['전용면적'] / 3.3058, 1)
+                        apt_period_data['평형'] = round(apt_period_data['전용면적'] / 3.3058, 1)
                         bins = [0, 20, 30, 40, 50, 60, 1000]
                         labels = ['20평 미만', '20평대', '30평대', '40평대', '50평대', '60평 이상']
-                        apt_yearly_data['평형대'] = pd.cut(apt_yearly_data['평형'], bins=bins, labels=labels, right=False)
-                        apt_yearly_data['계약일'] = pd.to_datetime(apt_yearly_data['계약일'])
+                        apt_period_data['평형대'] = pd.cut(apt_period_data['평형'], bins=bins, labels=labels, right=False)
+                        apt_period_data['계약일'] = pd.to_datetime(apt_period_data['계약일'])
                         
                         # [NEW] 전용면적별 데이터 나열
-                        unique_areas = sorted(apt_yearly_data['전용면적'].unique())
+                        unique_areas = sorted(apt_period_data['전용면적'].unique())
                         
+                        # 1. 요약 정보 (테이블)
+                        st.markdown(f"#### 📊 전용면적별 요약 (최근 {period})")
+                        summary_data = []
                         for area in unique_areas:
-                            area_py = round(area/3.3058, 1)
-                            st.markdown(f"### 📐 전용면적 {area}㎡ ({area_py}평)")
+                            sub_df = apt_period_data[apt_period_data['전용면적'] == area]
+                            summary_data.append({
+                                "전용면적": f"{area}㎡",
+                                "평형": f"{round(area/3.3058, 1)}평",
+                                "거래량": f"{len(sub_df)}건",
+                                "평균가": f"{sub_df['거래금액'].mean()/10000:.2f}억",
+                                "최고가": f"{sub_df['거래금액'].max()/10000:.2f}억",
+                                "최저가": f"{sub_df['거래금액'].min()/10000:.2f}억"
+                            })
+                        st.dataframe(pd.DataFrame(summary_data), hide_index=True, width="stretch")
+
+                        # 2. 상세 정보 (탭 구성)
+                        if unique_areas:
+                            st.markdown("#### 📈 면적별 상세 분석")
+                            tabs = st.tabs([f"{area}㎡" for area in unique_areas])
                             
-                            # 해당 전용면적 데이터 필터링
-                            filtered_df = apt_yearly_data[apt_yearly_data['전용면적'] == area].copy()
-                            
-                            # 거래금액 억원 변환
-                            filtered_df['거래금액_억'] = filtered_df['거래금액'] / 10000
-                            
-                            st.write("#### 실거래가 분포 (최근 1년)")
-                            fig = px.scatter(
-                                filtered_df.sort_values('계약일'), 
-                                x='계약일', y='거래금액_억', 
-                                hover_data=['층', '전용면적', '평형', '거래금액'], title=f"{apt_name} {area}㎡ 실거래가"
-                            )
-                            fig.update_layout(yaxis_title="거래금액 (억원)", xaxis_title="계약일")
-                            st.plotly_chart(fig, use_container_width=True)
-                            
-                            st.write("#### 상세 거래 내역")
-                            filtered_df['거래금액(억)'] = filtered_df['거래금액_억'].apply(lambda x: f"{x:.2f}억")
-                            st.dataframe(
-                                filtered_df[['계약일', '거래금액(억)', '전용면적', '평형', '층']].sort_values('계약일', ascending=False),
-                                width="stretch",
-                                hide_index=True
-                            )
-                            st.divider()
+                            for i, area in enumerate(unique_areas):
+                                with tabs[i]:
+                                    filtered_df = apt_period_data[apt_period_data['전용면적'] == area].copy()
+                                    filtered_df['거래금액_억'] = filtered_df['거래금액'] / 10000
+                                    
+                                    # 차트와 표를 좌우로 배치하여 공간 절약
+                                    c1, c2 = st.columns([0.6, 0.4])
+                                    
+                                    with c1:
+                                        fig = px.scatter(
+                                            filtered_df.sort_values('계약일'), 
+                                            x='계약일', y='거래금액_억', 
+                                            hover_data=['층', '전용면적', '평형', '거래금액'],
+                                            template='plotly_white', # 깔끔한 흰색 배경
+                                            color_discrete_sequence=['#4C78A8'] # 차분한 파란색
+                                        )
+                                        
+                                        # 마커 디자인 개선 (크기 확대, 테두리 추가, 투명도)
+                                        fig.update_traces(
+                                            marker=dict(size=12, line=dict(width=1, color='white'), opacity=0.8)
+                                        )
+                                        
+                                        # 레이아웃 정리 (타이틀 폰트, 여백, 축 설정)
+                                        fig.update_layout(
+                                            title=dict(text=f"{area}㎡ 실거래가 추이", font=dict(size=18, color="#333333")),
+                                            yaxis_title="거래금액 (억원)", 
+                                            xaxis_title=None, # X축 타이틀 제거
+                                            height=400,
+                                            margin=dict(t=50, b=20, l=20, r=20),
+                                            hovermode="closest"
+                                        )
+                                        fig.update_yaxes(tickformat=".2f")
+                                        
+                                        st.plotly_chart(fig, use_container_width=True)
+                                    
+                                    with c2:
+                                        st.markdown("**거래 내역**")
+                                        filtered_df['거래금액(억)'] = filtered_df['거래금액_억'].apply(lambda x: f"{x:.2f}억")
+                                        st.dataframe(
+                                            filtered_df[['계약일', '거래금액(억)', '층']].sort_values('계약일', ascending=False),
+                                            width="stretch",
+                                            hide_index=True,
+                                            height=400
+                                        )
     else:
         st.info("👆 대시보드에서 항목을 클릭하면 상세 차트가 표시됩니다.")
     
@@ -938,15 +1039,43 @@ with tab3:
                                     r_key = st.session_state.get("input_service_key")
                                 
                                 if r_key:
-                                    yearly_df = get_yearly_apt_data(r_key, apt_info['lawd_cd'])
+                                    yearly_df = get_period_apt_data(r_key, apt_info['lawd_cd'], months=12)
                                     if not yearly_df.empty:
                                         apt_df = yearly_df[yearly_df['아파트'] == apt_info['apt_name']]
                                         if not apt_df.empty:
-                                            context_text += f"\n[최근 1년 거래 요약]\n"
-                                            context_text += f"총 거래량: {len(apt_df)}건\n"
-                                            context_text += f"최고 실거래가: {apt_df['거래금액'].max()}만원\n"
-                                            context_text += f"최저 실거래가: {apt_df['거래금액'].min()}만원\n"
+                                            context_text += f"\n[대상 아파트: {apt_info['apt_name']} - 최근 1년 거래 요약]\n"
+                                            
+                                            # 전용면적별 통계 추가
+                                            for area in sorted(apt_df['전용면적'].unique()):
+                                                area_df = apt_df[apt_df['전용면적'] == area]
+                                                avg_p = area_df['거래금액'].mean()
+                                                max_p = area_df['거래금액'].max()
+                                                min_p = area_df['거래금액'].min()
+                                                cnt = len(area_df)
+                                                context_text += f"- 전용 {area}㎡: {cnt}건 거래, 평균 {avg_p:.0f}만원 (최고 {max_p}, 최저 {min_p})\n"
+                                            
                                             context_text += f"최근 거래일: {apt_df['계약일'].max()}\n"
+
+                                            # 주변 아파트 비교 (같은 법정동)
+                                            if '법정동' in yearly_df.columns:
+                                                target_dong = apt_df.iloc[0]['법정동']
+                                                surrounding = yearly_df[(yearly_df['법정동'] == target_dong) & (yearly_df['아파트'] != apt_info['apt_name'])].copy()
+                                                
+                                                if not surrounding.empty:
+                                                    context_text += f"\n[주변 아파트 ({target_dong}) 비교 데이터]\n"
+                                                    # 평당가(3.3m2) 계산
+                                                    my_avg_py = (apt_df['거래금액'] / apt_df['전용면적'] * 3.3).mean()
+                                                    other_avg_py = (surrounding['거래금액'] / surrounding['전용면적'] * 3.3).mean()
+                                                    
+                                                    context_text += f"- 대상 단지 평균 평당가: {my_avg_py:.0f}만원\n"
+                                                    context_text += f"- 주변 단지 평균 평당가: {other_avg_py:.0f}만원\n"
+                                                    
+                                                    # 주변 시세 상위 단지
+                                                    surrounding['평당가'] = surrounding['거래금액'] / surrounding['전용면적'] * 3.3
+                                                    top_apts = surrounding.groupby('아파트')['평당가'].mean().sort_values(ascending=False).head(3)
+                                                    context_text += "- 주변 시세 상위 단지 (평당가):\n"
+                                                    for name, val in top_apts.items():
+                                                        context_text += f"  * {name}: {val:.0f}만원\n"
 
                         # Gemini 호출
                         genai.configure(api_key=gemini_api_key)
@@ -964,6 +1093,7 @@ with tab3:
                         2. 주요 긍정적/부정적 요인 분석
                         3. 향후 전망 및 투자 전략 (매수/매도/관망 의견 포함)
                         4. 리스크 요인
+                        5. (부동산인 경우) 전용면적별 가격 적정성 및 주변 시세 대비 저평가/고평가 여부 분석
                         
                         마크다운 형식으로 가독성 있게 작성해주세요.
                         """
