@@ -24,8 +24,11 @@ except ImportError:
 
 load_dotenv() # .env 파일 로드
 
+# 앱 버전 정보
+__version__ = "1.0.0"
+
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
-st.set_page_config(page_title="통합 자산 모니터링 대시보드", layout="wide")
+st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
 
 # [NEW] 설정 파일 관리 (저장/불러오기)
 CONFIG_FILE = "dashboard_config.json"
@@ -247,7 +250,12 @@ if 'popover_refresh_key' not in st.session_state:
 
 # 2. 사이드바 설정 (입력값 받기)
 with st.sidebar:
-    st.title("⚙️ 설정")
+    st.markdown(f"""
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <h1 style="margin: 0;">⚙️ 설정</h1>
+            <span style="font-size: 0.8rem; color: grey;">v{__version__}</span>
+        </div>
+    """, unsafe_allow_html=True)
     
     # 1. Crypto 설정
     with st.expander("🪙 코인 설정", expanded=False):
