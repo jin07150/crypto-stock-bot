@@ -9,6 +9,7 @@ import time
 import uuid
 import json
 import google.generativeai as genai
+import xml.etree.ElementTree as ET
 try:
     from github import Github, InputFileContent
 except ImportError:
@@ -25,7 +26,20 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.0.3"
+__version__ = "1.0.7"   
+
+# [REFACTOR] 주요 주식 추천 목록 (전역으로 이동하여 재사용)
+STOCK_RECOMMENDATIONS = {
+    "삼성전자 (005930.KS)": "005930.KS", "SK하이닉스 (000660.KS)": "000660.KS",
+    "현대차 (005380.KS)": "005380.KS", "NAVER (035420.KS)": "035420.KS",
+    "카카오 (035720.KS)": "035720.KS",
+    "TIGER 미국S&P500 (360750.KS)": "360750.KS",
+    "TIGER 미국나스닥100 (133690.KS)": "133690.KS",
+    "TIGER 미국필라델피아반도체 (381180.KS)": "381180.KS",
+    "애플 (AAPL)": "AAPL",
+    "테슬라 (TSLA)": "TSLA", "마이크로소프트 (MSFT)": "MSFT",
+    "엔비디아 (NVDA)": "NVDA", "구글 (GOOGL)": "GOOGL", "아마존 (AMZN)": "AMZN"
+}
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -248,10 +262,6 @@ if 'dashboard_order' not in st.session_state:
 if 'cache_invalidation_ts' not in st.session_state:
     st.session_state['cache_invalidation_ts'] = {}
 
-# [NEW] 팝오버 강제 닫기를 위한 상태 키
-if 'popover_refresh_key' not in st.session_state:
-    st.session_state['popover_refresh_key'] = 0
-
 # 2. 사이드바 설정 (입력값 받기)
 with st.sidebar:
     st.markdown(f"""
@@ -283,19 +293,6 @@ with st.sidebar:
 
     # 2. Stock 설정
     with st.expander("📈 주식 설정", expanded=False):
-        # 주요 주식 추천 목록
-        STOCK_RECOMMENDATIONS = {
-            "삼성전자 (005930.KS)": "005930.KS", "SK하이닉스 (000660.KS)": "000660.KS",
-            "현대차 (005380.KS)": "005380.KS", "NAVER (035420.KS)": "035420.KS",
-            "카카오 (035720.KS)": "035720.KS",
-            "TIGER 미국S&P500 (360750.KS)": "360750.KS",
-            "TIGER 미국나스닥100 (133690.KS)": "133690.KS",
-            "TIGER 미국필라델피아반도체 (381180.KS)": "381180.KS",
-            "애플 (AAPL)": "AAPL",
-            "테슬라 (TSLA)": "TSLA", "마이크로소프트 (MSFT)": "MSFT",
-            "엔비디아 (NVDA)": "NVDA", "구글 (GOOGL)": "GOOGL", "아마존 (AMZN)": "AMZN"
-        }
-        
         selected_stocks = st.multiselect(
             "주요 주식 선택",
             options=list(STOCK_RECOMMENDATIONS.keys()),
@@ -385,9 +382,7 @@ with st.sidebar:
                         # 중복 확인 (ID 제외하고 내용으로 비교)
                         is_duplicate = False
                         for fav in st.session_state['favorite_apts']:
-                            if (fav['lawd_cd'] == target_lawd and 
-                                fav['apt_name'] == selected_apt and 
-                                fav['deal_ymd'] == deal_ymd):
+                            if (fav['lawd_cd'] == target_lawd and fav['apt_name'] == selected_apt):
                                 is_duplicate = True
                                 break
                         
@@ -396,8 +391,7 @@ with st.sidebar:
                                 "id": str(uuid.uuid4()), # 고유 ID 생성
                                 "lawd_cd": target_lawd,
                                 "region_name": f"{selected_sido} {selected_sigungu}",
-                                "apt_name": selected_apt,
-                                "deal_ymd": deal_ymd
+                                "apt_name": selected_apt
                             }
                             st.session_state['favorite_apts'].append(item)
                             save_config() # 저장
@@ -481,13 +475,52 @@ def get_stock_price(ticker):
     except Exception:
         return 0, 0, "KRW"
 
+# [NEW] 환율 정보 조회 함수
+@st.cache_data(ttl=3600) # 1시간 캐시
+def get_exchange_rate(from_currency="USD", to_currency="KRW"):
+    """yfinance를 이용해 환율 정보를 가져옵니다."""
+    try:
+        ticker_str = f"{from_currency}{to_currency}=X"
+        if from_currency == "USD" and to_currency == "KRW":
+            ticker_str = "KRW=X" # yfinance는 KRW=X를 사용
+            
+        ticker = yf.Ticker(ticker_str)
+        hist = ticker.history(period="5d")
+        
+        if len(hist) >= 2:
+            rate = hist['Close'].iloc[-1]
+            prev = hist['Close'].iloc[-2]
+            change = ((rate - prev) / prev) * 100
+            return rate, change
+        elif not hist.empty:
+            return hist['Close'].iloc[-1], 0.0
+        return None, 0.0
+    except Exception:
+        return None, 0.0
+
 # 5. 메인 대시보드 UI 구성
 st.title("📊 통합 자산 모니터링 대시보드")
 
 st.subheader("📍 실시간 요약")
 
+# [NEW] 환율 정보 가져오기 및 표시
+usd_to_krw_rate, usd_change = get_exchange_rate("USD", "KRW")
+if usd_to_krw_rate:
+    st.caption(f"현재 환율: 1 USD ≈ {usd_to_krw_rate:,.2f} KRW")
+
 # 표시할 모든 메트릭 데이터를 수집
 metrics_data = []
+
+# [NEW] 환율 정보 추가
+if usd_to_krw_rate:
+    metrics_data.append({
+        "label": "💵 달러 환율",
+        "value": f"{usd_to_krw_rate:,.2f} KRW",
+        "delta": f"{usd_change:.2f}%",
+        "type": "exchange",
+        "id": "KRW=X",
+        "key": "exchange:USD/KRW"
+    })
 
 # 1. 코인 데이터 수집
 for name in selected_coins:
@@ -512,6 +545,10 @@ for name in selected_stocks:
         # 통화에 따른 포맷팅
         if currency == "USD":
             value_fmt = f"${price:,.2f}"
+            # [NEW] 원화 환산 가격 추가
+            if usd_to_krw_rate:
+                krw_price = price * usd_to_krw_rate
+                value_fmt += f" (≈ {krw_price:,.0f} 원)"
         elif currency == "KRW":
             value_fmt = f"{price:,.0f} KRW"
         else:
@@ -534,6 +571,10 @@ if custom_stock_input:
         # 통화에 따른 포맷팅
         if currency == "USD":
             value_fmt = f"${price:,.2f}"
+            # [NEW] 원화 환산 가격 추가
+            if usd_to_krw_rate:
+                krw_price = price * usd_to_krw_rate
+                value_fmt += f" (≈ {krw_price:,.0f} 원)"
         elif currency == "KRW":
             value_fmt = f"{price:,.0f} KRW"
         else:
@@ -559,7 +600,9 @@ if use_real_estate:
                 if 'id' not in item: item['id'] = str(uuid.uuid4())
                 
                 # 각 관심 단지별 데이터 로드
-                df = fetch_apt_trade_data_cached(service_key, item['lawd_cd'], item['deal_ymd'])
+                # [REFACTOR] 항상 현재 월의 데이터를 조회하여 최신성을 보장
+                current_deal_ymd = datetime.date.today().strftime("%Y%m")
+                df = fetch_apt_trade_data_cached(service_key, item['lawd_cd'], current_deal_ymd)
                 
                 if not df.empty:
                     # 해당 아파트만 필터링
@@ -666,7 +709,7 @@ with tab1:
             lawd_cd_for_cache = st.session_state['favorite_apts'][target['id']]['lawd_cd']
 
         # 헤더, 기간 선택기, 삭제 버튼을 나란히 배치
-        if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
+        if target['type'] in ['coin', 'stock_rec', 'stock_custom', 'exchange']:
             col_title, col_period, col_del = st.columns([0.3, 0.5, 0.2])
         else: # 부동산
             col_title, col_period, col_del = st.columns([0.3, 0.5, 0.2])
@@ -675,7 +718,7 @@ with tab1:
             st.markdown(f"### {target['label']}")
 
         with col_period:
-            if target['type'] in ['coin', 'stock_rec', 'stock_custom']:
+            if target['type'] in ['coin', 'stock_rec', 'stock_custom', 'exchange']:
                 period = st.radio(
                     "조회 기간", 
                     ["1주일", "1개월", "3개월", "1년", "5년", "10년", "전체"], 
@@ -702,26 +745,25 @@ with tab1:
         
         with col_del:
             # 현재 선택된 자산 삭제 버튼
-            if st.button("대시보드에서 삭제", key="del_current_asset", type="primary"):
-                metric = target
-                if metric["type"] == "coin":
-                    if metric["id"] in st.session_state['selected_coins_state']:
-                        st.session_state['selected_coins_state'].remove(metric["id"])
+            if target['type'] != 'exchange' and st.button("대시보드에서 삭제", key="del_current_asset", type="primary"):
+                if target["type"] == "coin":
+                    if target["id"] in st.session_state['selected_coins_state']:
+                        st.session_state['selected_coins_state'].remove(target["id"])
                         save_config()
-                elif metric["type"] == "stock_rec":
-                    if metric["id"] in st.session_state['selected_stocks_state']:
-                        st.session_state['selected_stocks_state'].remove(metric["id"])
-                elif metric["type"] == "stock_custom":
+                elif target["type"] == "stock_rec":
+                    if target["id"] in st.session_state['selected_stocks_state']:
+                        st.session_state['selected_stocks_state'].remove(target["id"])
+                elif target["type"] == "stock_custom":
                     current_input = st.session_state['custom_stock_state']
                     tickers = [t.strip() for t in current_input.split(',') if t.strip()]
-                    if metric["id"] in tickers:
-                        tickers.remove(metric["id"])
+                    if target["id"] in tickers:
+                        tickers.remove(target["id"])
                     st.session_state['custom_stock_state'] = ", ".join(tickers)
                     save_config()
-                elif metric["type"] == "real_estate":
+                elif target["type"] == "real_estate":
                     # 인덱스 유효성 확인 후 삭제
-                    if 0 <= metric["id"] < len(st.session_state['favorite_apts']):
-                        st.session_state['favorite_apts'].pop(metric["id"])
+                    if 0 <= target["id"] < len(st.session_state['favorite_apts']):
+                        st.session_state['favorite_apts'].pop(target["id"])
                         save_config()
                 
                 st.session_state['selected_asset'] = None
@@ -760,7 +802,7 @@ with tab1:
                     st.error("차트 데이터를 불러올 수 없습니다.")
         
         # 2. 주식 차트 (Yahoo Finance)
-        elif target['type'] in ['stock_rec', 'stock_custom']:
+        elif target['type'] in ['stock_rec', 'stock_custom', 'exchange']:
             ticker = target['id']
             if target['type'] == 'stock_rec':
                 ticker = STOCK_RECOMMENDATIONS.get(target['id'])
@@ -779,13 +821,22 @@ with tab1:
 
                     df = yf.Ticker(ticker).history(period=yf_period)
                     
-                    # 인덱스(Date)를 컬럼으로 변환하여 Plotly에 사용
-                    df = df.reset_index()
-                    fig = px.line(df, x='Date', y='Close', title=f"{target['label']} 주가 추이")
-                    fig.update_layout(hovermode="x unified")
-                    st.plotly_chart(fig, use_container_width=True)
-                except:
-                    st.error("차트 데이터를 불러올 수 없습니다.")
+                    if df.empty:
+                        st.warning("해당 기간의 데이터가 없습니다.")
+                    else:
+                        # 인덱스(Date)를 컬럼으로 변환하여 Plotly에 사용
+                        df = df.reset_index()
+                        
+                        # 날짜 컬럼 식별 (Date 또는 Datetime)
+                        date_col = 'Date'
+                        if 'Date' not in df.columns:
+                            date_col = 'Datetime' if 'Datetime' in df.columns else df.columns[0]
+
+                        fig = px.line(df, x=date_col, y='Close', title=f"{target['label']} 추이")
+                        fig.update_layout(hovermode="x unified")
+                        st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"차트 데이터를 불러올 수 없습니다: {e}")
 
         # 3. 부동산 차트 (최근 거래 내역)
         elif target['type'] == 'real_estate':
@@ -891,6 +942,42 @@ with tab1:
     else:
         st.info("👆 대시보드에서 항목을 클릭하면 상세 차트가 표시됩니다.")
     
+# [REFACTOR] 뉴스 표시 로직 개선 (Google News RSS 사용)
+def display_news(keyword):
+    """Google News RSS를 검색하여 뉴스를 표시하는 함수"""
+    try:
+        st.caption(f"'{keyword}' 관련 최신 뉴스 (Google News)")
+        url = f"https://news.google.com/rss/search?q={keyword}&hl=ko&gl=KR&ceid=KR:ko"
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code == 200:
+            root = ET.fromstring(response.content)
+            items = root.findall('.//item')
+            
+            if items:
+                for item in items[:5]: # 상위 5개만 표시
+                    title = item.find('title').text
+                    link = item.find('link').text
+                    pub_date = item.find('pubDate').text
+                    source_elem = item.find('source')
+                    source = source_elem.text if source_elem is not None else "Google News"
+                    
+                    with st.container(border=True):
+                        st.markdown(f"**[{title}]({link})**")
+                        # 날짜 포맷팅 시도
+                        try:
+                            dt = datetime.datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
+                            date_str = dt.strftime('%Y-%m-%d %H:%M')
+                            st.caption(f"{source} | {date_str}")
+                        except:
+                            st.caption(f"{source} | {pub_date}")
+            else:
+                st.info("관련 뉴스가 없습니다.")
+        else:
+            st.warning("뉴스 데이터를 가져오지 못했습니다.")
+    except Exception as e:
+        st.error(f"뉴스 로딩 중 오류: {e}")
+
 with tab2:
     st.subheader("상세 정보 및 뉴스")
     target = st.session_state.get('selected_asset')
@@ -898,85 +985,24 @@ with tab2:
     if target:
         st.markdown(f"### {target['label']}")
         
-        # 1. 주식 뉴스
-        if target['type'] in ['stock_rec', 'stock_custom']:
-            ticker = target['id']
-            # 주식 추천 딕셔너리 (참조용)
-            STOCK_RECOMMENDATIONS = {
-                "삼성전자 (005930.KS)": "005930.KS", "SK하이닉스 (000660.KS)": "000660.KS",
-                "현대차 (005380.KS)": "005380.KS", "NAVER (035420.KS)": "035420.KS",
-                "카카오 (035720.KS)": "035720.KS",
-                "TIGER 미국S&P500 (360750.KS)": "360750.KS",
-                "TIGER 미국나스닥100 (133690.KS)": "133690.KS",
-                "TIGER 미국필라델피아반도체 (381180.KS)": "381180.KS",
-                "애플 (AAPL)": "AAPL",
-                "테슬라 (TSLA)": "TSLA", "마이크로소프트 (MSFT)": "MSFT",
-                "엔비디아 (NVDA)": "NVDA", "구글 (GOOGL)": "GOOGL", "아마존 (AMZN)": "AMZN"
-            }
-            
-            if target['type'] == 'stock_rec':
-                ticker = STOCK_RECOMMENDATIONS.get(target['id'], target['id'])
-            
-            try:
-                st.caption(f"Ticker: {ticker} 관련 최신 뉴스 (Yahoo Finance)")
-                stock = yf.Ticker(ticker)
-                news = stock.news
-                if news:
-                    for item in news:
-                        with st.container(border=True):
-                            link = item.get('link')
-                            title = item.get('title')
-                            publisher = item.get('publisher')
-                            pub_time = item.get('providerPublishTime')
-                            
-                            st.markdown(f"**[{title}]({link})**")
-                            if pub_time:
-                                date_str = datetime.datetime.fromtimestamp(pub_time).strftime('%Y-%m-%d %H:%M')
-                                st.caption(f"{publisher} | {date_str}")
-                            else:
-                                st.caption(f"{publisher}")
-                else:
-                    st.info("최근 뉴스가 없습니다.")
-            except Exception:
-                st.error("뉴스 데이터를 불러오는 중 오류가 발생했습니다.")
+        # 검색어 추출 (이모지 제거 및 괄호 앞부분 추출)
+        query = target['label']
+        for emoji in ["🪙", "📈", "💵", "🏠"]:
+            query = query.replace(emoji, "")
+        query = query.split('(')[0].strip()
+        
+        if target['type'] == 'exchange':
+            query = "원달러 환율"
 
-        # 2. 코인 뉴스
-        elif target['type'] == 'coin':
-            coin_market_dict = get_upbit_markets()
-            upbit_ticker = coin_market_dict.get(target['id'])
+        # 1. 뉴스 (주식, 코인, 환율)
+        if target['type'] in ['stock_rec', 'stock_custom', 'exchange', 'coin']:
+            display_news(query)
             
-            if upbit_ticker:
-                # KRW-BTC -> BTC-USD 변환 시도 (Yahoo Finance 뉴스용)
-                yf_ticker = upbit_ticker.replace("KRW-", "") + "-USD"
-                st.caption(f"Ticker: {yf_ticker} 관련 최신 뉴스 (Yahoo Finance)")
-                
-                try:
-                    coin = yf.Ticker(yf_ticker)
-                    news = coin.news
-                    if news:
-                        for item in news:
-                            with st.container(border=True):
-                                link = item.get('link')
-                                title = item.get('title')
-                                publisher = item.get('publisher')
-                                pub_time = item.get('providerPublishTime')
-                                
-                                st.markdown(f"**[{title}]({link})**")
-                                if pub_time:
-                                    date_str = datetime.datetime.fromtimestamp(pub_time).strftime('%Y-%m-%d %H:%M')
-                                    st.caption(f"{publisher} | {date_str}")
-                                else:
-                                    st.caption(f"{publisher}")
-                    else:
-                        st.info("최근 뉴스가 없습니다.")
-                except:
-                    pass
-            
-            # 네이버 검색 링크 추가
-            query = target['label'].split('(')[0].replace("🪙", "").strip()
-            st.markdown(f"🔗 [네이버 뉴스 검색: {query}](https://search.naver.com/search.naver?where=news&query={query})")
+            # 코인인 경우 네이버 검색 링크 추가
+            if target['type'] == 'coin':
+                 st.markdown(f"🔗 [네이버 뉴스 검색: {query}](https://search.naver.com/search.naver?where=news&query={query})")
 
-        # 3. 부동산 상세
+        # 2. 부동산 상세
         elif target['type'] == 'real_estate':
             if use_real_estate and not df_display.empty:
                 if 0 <= target['id'] < len(st.session_state['favorite_apts']):
@@ -1034,7 +1060,7 @@ with tab3:
                                     context_text += f"날짜: {c['candle_date_time_kst'][:10]}, 종가: {c['trade_price']}, 등락률: {c['change_rate']*100:.2f}%\n"
 
                         # 2. 주식 데이터 추가 수집
-                        elif target['type'] in ['stock_rec', 'stock_custom']:
+                        elif target['type'] in ['stock_rec', 'stock_custom', 'exchange']:
                             ticker = target['id']
                             if target['type'] == 'stock_rec':
                                 ticker = STOCK_RECOMMENDATIONS.get(target['id'], target['id'])

@@ -19,24 +19,16 @@ def get_apt_trade_data(service_key: str, lawd_cd: str, deal_ymd: str) -> pd.Data
     }
     
     try:
-        print(f"🔍 [API Request] LAWD_CD: {lawd_cd}, DEAL_YMD: {deal_ymd}")
         response = requests.get(url, params=params)
-        
-        print(f"📡 [API Response] Status: {response.status_code}")
-        print(f"🔗 [Full URL]: {response.url}")
         
         # 응답 상태 확인
         if response.status_code != 200:
-            print(f"❌ [HTTP Error]: {response.status_code}")
-            print(f"📄 [Response Body]: {response.text}")
             return pd.DataFrame()
             
         # XML 파싱
         try:
             root = ET.fromstring(response.content)
         except ET.ParseError as e:
-            print(f"❌ [XML Parse Error]: {e}")
-            print(f"📄 [Response Content]: {response.text}")
             return pd.DataFrame()
         
         # API 에러 응답 확인
@@ -44,15 +36,12 @@ def get_apt_trade_data(service_key: str, lawd_cd: str, deal_ymd: str) -> pd.Data
         result_msg = root.find("header/resultMsg")
         
         if result_code is not None:
-            print(f"ℹ️ [API Result] Code: {result_code.text}, Msg: {result_msg.text if result_msg is not None else ''}")
             # 성공 코드가 '00' 또는 '000'일 수 있음
             if result_code.text not in ["00", "000"]:
-                print(f"❌ [API Error]: {result_msg.text if result_msg is not None else 'Unknown'} (Code: {result_code.text})")
                 return pd.DataFrame()
         
         items = root.findall("body/items/item")
-        print(f"✅ [Data Found]: {len(items)} items")
-        
+
         if not items:
             return pd.DataFrame()
 

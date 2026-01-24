@@ -27,6 +27,12 @@
             "region_name": "대구광역시 수성구",
             "apt_name": "수성2차e-편한세상",
             "deal_ymd": "202601"
+        },
+        {
+            "id": "c50c9593-0aee-4886-89d8-4a437d8a9f50",
+            "lawd_cd": "27260",
+            "region_name": "대구광역시 수성구",
+            "apt_name": "만촌자이르네"
         }
     ],
     "selected_coins": [
@@ -49,7 +55,8 @@
         "stock_rec:테슬라 (TSLA)",
         "real_estate:7f5e3f9e-63b3-4e93-a164-95d0cc94fcc8",
         "real_estate:d02b33cd-93f0-4a8a-a91a-05825c442e71",
-        "real_estate:93af5509-f876-439a-8f7f-838583c34854"
+        "real_estate:93af5509-f876-439a-8f7f-838583c34854",
+        "real_estate:6b73ffc4-2437-4c38-be50-7807e466b14b"
     ],
     "selected_ai_model": "models/gemini-2.5-flash"
 }
