@@ -25,7 +25,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.0.9"   
+__version__ = "1.1.1"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -41,6 +41,13 @@ if 'init_done' not in st.session_state:
         if 'selected_stocks' in config: st.session_state['selected_stocks_state'] = config['selected_stocks']
         if 'custom_stock' in config: st.session_state['custom_stock_state'] = config['custom_stock']
         if 'selected_ai_model' in config: st.session_state['selected_ai_model'] = config['selected_ai_model']
+    
+    # [FIX] 세션 상태 초기화 (Config에 없거나 로드 실패 시 기본값 설정)
+    if 'selected_stocks_state' not in st.session_state:
+        st.session_state['selected_stocks_state'] = ["삼성전자 (005930.KS)", "TIGER 미국S&P500 (360750.KS)", "TIGER 미국나스닥100 (133690.KS)", "TIGER 미국필라델피아반도체 (381180.KS)"]
+    if 'custom_stock_state' not in st.session_state:
+        st.session_state['custom_stock_state'] = ""
+        
     st.session_state['init_done'] = True
 
 if not utils.check_password():
@@ -71,38 +78,17 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
     
-    # 1. Crypto 설정
-    with st.expander("🪙 코인 설정", expanded=False):
-        coin_market_dict = data_manager.get_upbit_markets()
-        
-        # 기본 선택값 설정
-        default_coins = []
-        if coin_market_dict:
-            # 딕셔너리 키 중에서 비트코인, 이더리움, 리플을 찾아서 기본값으로 설정
-            for key in coin_market_dict.keys():
-                if "KRW-BTC" in key or "KRW-ETH" in key or "KRW-XRP" in key:
-                    default_coins.append(key)
-        
-        selected_coins = st.multiselect(
-            "코인 선택 (이름 검색 가능)", 
-            options=list(coin_market_dict.keys()),
-            default=default_coins,
-            key="selected_coins_state", # 세션 상태와 연동
-            on_change=utils.save_config # 변경 시 저장
-        )
-
-    # 2. Stock 설정
+    # 1. Stock 설정
     with st.expander("📈 주식 설정", expanded=False):
         selected_stocks = st.multiselect(
             "주요 주식 선택",
             options=list(utils.STOCK_RECOMMENDATIONS.keys()),
-            default=["삼성전자 (005930.KS)", "애플 (AAPL)", "테슬라 (TSLA)"],
             key="selected_stocks_state", # 세션 상태와 연동
             on_change=utils.save_config # 변경 시 저장
         )
         custom_stock_input = st.text_input("기타 주식 티커 입력 (콤마로 구분)", placeholder="예: 000270.KS, NFLX", key="custom_stock_state", on_change=utils.save_config)
     
-    # 3. 부동산 설정
+    # 2. 부동산 설정
     with st.expander("🏠 부동산 설정", expanded=False):
         use_real_estate = st.checkbox("부동산 모니터링 활성화", value=True)
         
@@ -212,6 +198,27 @@ with st.sidebar:
                         st.session_state['favorite_apts'].pop(i)
                         utils.save_config() # 저장
                         st.rerun()
+
+    # 3. Crypto 설정
+    with st.expander("🪙 코인 설정", expanded=False):
+        coin_market_dict = data_manager.get_upbit_markets()
+        
+        # [FIX] 코인 기본값 세션 상태 초기화
+        if 'selected_coins_state' not in st.session_state:
+            default_coins = []
+            if coin_market_dict:
+                # 딕셔너리 키 중에서 비트코인을 찾아서 기본값으로 설정
+                for key in coin_market_dict.keys():
+                    if "KRW-BTC" in key:
+                        default_coins.append(key)
+            st.session_state['selected_coins_state'] = default_coins
+        
+        selected_coins = st.multiselect(
+            "코인 선택 (이름 검색 가능)", 
+            options=list(coin_market_dict.keys()),
+            key="selected_coins_state", # 세션 상태와 연동
+            on_change=utils.save_config # 변경 시 저장
+        )
 
     # 4. AI 설정
     with st.expander("🤖 AI 설정", expanded=False):
@@ -518,7 +525,7 @@ with tab1:
         
         # 1. 코인 차트 (업비트)
         if target['type'] == 'coin':
-            coin_market_dict = get_upbit_markets()
+            coin_market_dict = data_manager.get_upbit_markets()
             ticker = coin_market_dict.get(target['id'])
             if ticker:
                 try:
@@ -763,7 +770,7 @@ with tab3:
                         
                         # 1. 코인 데이터 추가 수집
                         if target['type'] == 'coin':
-                            coin_market_dict = get_upbit_markets()
+                            coin_market_dict = data_manager.get_upbit_markets()
                             ticker = coin_market_dict.get(target['id'])
                             if ticker:
                                 url = f"https://api.upbit.com/v1/candles/days?market={ticker}&count=7"

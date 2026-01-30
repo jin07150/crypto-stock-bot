@@ -6,10 +6,11 @@ import requests
 import datetime
 import xml.etree.ElementTree as ET
 try:
-    from github import Github, InputFileContent
+    from github import Github, InputFileContent, GithubException
 except ImportError:
     Github = None
     InputFileContent = None
+    GithubException = None
 
 # 주요 주식 추천 목록
 STOCK_RECOMMENDATIONS = {
@@ -19,6 +20,7 @@ STOCK_RECOMMENDATIONS = {
     "TIGER 미국S&P500 (360750.KS)": "360750.KS",
     "TIGER 미국나스닥100 (133690.KS)": "133690.KS",
     "TIGER 미국필라델피아반도체 (381180.KS)": "381180.KS",
+    "ACE KRX금현물 (411060.KS)": "411060.KS",
     "애플 (AAPL)": "AAPL",
     "테슬라 (TSLA)": "TSLA", "마이크로소프트 (MSFT)": "MSFT",
     "엔비디아 (NVDA)": "NVDA", "구글 (GOOGL)": "GOOGL", "아마존 (AMZN)": "AMZN"
@@ -43,7 +45,10 @@ def load_config():
                 content = gist.files[CONFIG_FILE].content
                 return json.loads(content)
         except Exception as e:
-            print(f"Gist load error: {e}")
+            if "Bad credentials" in str(e) or "401" in str(e):
+                print("⚠️ GitHub API 인증 실패: 토큰이 유효하지 않습니다. 로컬 설정을 사용합니다.")
+            else:
+                print(f"Gist load error: {e}")
 
     if os.path.exists(CONFIG_FILE):
         try:
@@ -80,7 +85,10 @@ def save_config():
                     description="Crypto Stock Bot Dashboard Config"
                 )
         except Exception as e:
-            print(f"Gist save error: {e}")
+            if "Bad credentials" in str(e) or "401" in str(e):
+                print("⚠️ GitHub API 인증 실패: 설정을 Gist에 저장할 수 없습니다.")
+            else:
+                print(f"Gist save error: {e}")
 
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:

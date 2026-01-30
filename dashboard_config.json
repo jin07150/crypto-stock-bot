@@ -36,27 +36,28 @@
         }
     ],
     "selected_coins": [
-        "이더리움 (KRW-ETH)",
-        "엑스알피(리플) (KRW-XRP)",
         "비트코인 (KRW-BTC)"
     ],
     "selected_stocks": [
         "삼성전자 (005930.KS)",
-        "애플 (AAPL)",
-        "테슬라 (TSLA)"
+        "TIGER 미국S&P500 (360750.KS)",
+        "TIGER 미국필라델피아반도체 (381180.KS)",
+        "ACE KRX금현물 (411060.KS)",
+        "TIGER 미국나스닥100 (133690.KS)"
     ],
     "custom_stock": "",
     "dashboard_order": [
-        "coin:이더리움 (KRW-ETH)",
-        "coin:엑스알피(리플) (KRW-XRP)",
-        "coin:비트코인 (KRW-BTC)",
-        "stock_rec:삼성전자 (005930.KS)",
-        "stock_rec:애플 (AAPL)",
-        "stock_rec:테슬라 (TSLA)",
         "real_estate:7f5e3f9e-63b3-4e93-a164-95d0cc94fcc8",
+        "stock_rec:삼성전자 (005930.KS)",
+        "coin:비트코인 (KRW-BTC)",
         "real_estate:d02b33cd-93f0-4a8a-a91a-05825c442e71",
         "real_estate:93af5509-f876-439a-8f7f-838583c34854",
-        "real_estate:6b73ffc4-2437-4c38-be50-7807e466b14b"
+        "real_estate:6b73ffc4-2437-4c38-be50-7807e466b14b",
+        "real_estate:c50c9593-0aee-4886-89d8-4a437d8a9f50",
+        "exchange:USD/KRW",
+        "stock_rec:TIGER 미국S&P500 (360750.KS)",
+        "stock_rec:TIGER 미국필라델피아반도체 (381180.KS)",
+        "stock_rec:ACE KRX금현물 (411060.KS)"
     ],
     "selected_ai_model": "models/gemini-2.5-flash"
 }
