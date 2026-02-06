@@ -6,7 +6,7 @@ import datetime
 from real_estate_loader import get_apt_trade_data
 
 @st.cache_data(ttl=604800)
-def fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd):
+def fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd, _cache_ts=0):
     return get_apt_trade_data(service_key, lawd_cd, deal_ymd)
 
 @st.cache_data(ttl=604800)
@@ -25,7 +25,7 @@ def get_period_apt_data(service_key, lawd_cd, months=12, _cache_ts=0):
 
     with st.spinner(f"'{lawd_cd}' 지역의 최근 {months}개월 데이터를 불러옵니다..."):
         for deal_ymd in ym_to_fetch:
-            df_month = fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd)
+            df_month = fetch_apt_trade_data_cached(service_key, lawd_cd, deal_ymd, _cache_ts=_cache_ts)
             if not df_month.empty:
                 all_dfs.append(df_month)
     

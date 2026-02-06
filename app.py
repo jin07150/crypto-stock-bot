@@ -5,6 +5,8 @@ import requests
 import plotly.express as px
 import datetime
 import os
+import numpy as np
+import plotly.graph_objects as go
 import time
 import uuid
 import urllib.parse
@@ -25,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.1.1"   
+__version__ = "1.1.6"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -47,6 +49,17 @@ if 'init_done' not in st.session_state:
         st.session_state['selected_stocks_state'] = ["삼성전자 (005930.KS)", "TIGER 미국S&P500 (360750.KS)", "TIGER 미국나스닥100 (133690.KS)", "TIGER 미국필라델피아반도체 (381180.KS)"]
     if 'custom_stock_state' not in st.session_state:
         st.session_state['custom_stock_state'] = ""
+    
+    # [NEW] 부동산 관심 단지 기본값 설정 (최초 실행 시 예시 데이터 제공)
+    if 'favorite_apts' not in st.session_state:
+        st.session_state['favorite_apts'] = [
+            {
+                "id": str(uuid.uuid4()),
+                "lawd_cd": "11680", # 서울 강남구
+                "region_name": "서울특별시 강남구",
+                "apt_name": "은마"
+            }
+        ]
         
     st.session_state['init_done'] = True
 
@@ -125,8 +138,9 @@ with st.sidebar:
             if service_key and target_lawd:
                 deal_ymd = target_date.strftime("%Y%m")
                 # 캐싱된 함수 사용하여 임시 데이터 로드
+                ts = st.session_state.get('cache_invalidation_ts', {}).get(target_lawd, 0)
                 with st.spinner("데이터 조회 중..."):
-                    df_temp = data_manager.fetch_apt_trade_data_cached(service_key, target_lawd, deal_ymd)
+                    df_temp = data_manager.fetch_apt_trade_data_cached(service_key, target_lawd, deal_ymd, _cache_ts=ts)
                 
                 # 데이터 유무와 상관없이 selectbox 표시 (UX 개선)
                 apt_list = []
@@ -247,6 +261,13 @@ with st.sidebar:
             else:
                 st.warning("사용 가능한 모델을 불러올 수 없습니다. API 키를 확인해주세요.")
 
+    # [NEW] 설정 파일 상태 표시
+    st.markdown("---")
+    if os.path.exists(utils.CONFIG_FILE):
+        last_mod = datetime.datetime.fromtimestamp(os.path.getmtime(utils.CONFIG_FILE)).strftime('%Y-%m-%d %H:%M')
+        st.caption(f"✅ 설정 저장됨 (최근 수정: {last_mod})")
+    else:
+        st.caption("ℹ️ 기본 설정 사용 중 (저장된 파일 없음)")
 
     st.divider()
     if st.button("데이터 새로고침"):
@@ -482,20 +503,19 @@ with tab1:
                     key="period_crypto_stock"
                 )
             elif target['type'] == 'real_estate':
-                period = st.radio(
-                    "조회 기간",
-                    ["1년", "2년", "3년"],
-                    index=0,
-                    horizontal=True,
-                    label_visibility="collapsed",
-                    key="period_real_estate"
-                )
+                period = "3년"
             
             if target['type'] == 'real_estate' and lawd_cd_for_cache:
                 if st.button("🔄 캐시 새로고침"):
                     st.session_state.setdefault('cache_invalidation_ts', {})[lawd_cd_for_cache] = time.time()
                     st.toast(f"'{target['label']}' 지역의 캐시가 삭제되었습니다.", icon="🧹")
                     st.rerun()
+                
+                ts = st.session_state.get('cache_invalidation_ts', {}).get(lawd_cd_for_cache, 0)
+                if ts > 0:
+                    kst = datetime.timezone(datetime.timedelta(hours=9))
+                    dt_kst = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).astimezone(kst)
+                    st.caption(f"최근 갱신: {dt_kst.strftime('%Y-%m-%d %H:%M')} (KST)")
         
         with col_del:
             # 현재 선택된 자산 삭제 버튼
@@ -604,9 +624,7 @@ with tab1:
                 apt_name = apt_info['apt_name']
                 lawd_cd = apt_info['lawd_cd']
                 
-                months = 12
-                if period == "2년": months = 24
-                elif period == "3년": months = 36
+                months = 36
                 
                 ts = st.session_state.get('cache_invalidation_ts', {}).get(lawd_cd, 0)
                 period_data = data_manager.get_period_apt_data(service_key, lawd_cd, months=months, _cache_ts=ts)
@@ -666,6 +684,50 @@ with tab1:
                                             color_discrete_sequence=['#4C78A8'] # 차분한 파란색
                                         )
                                         
+                                        # [NEW] 추세선 및 변동폭(채널) 추가 - Trend 방향과 폭 시각화
+                                        if len(filtered_df) >= 2:
+                                            df_sorted = filtered_df.sort_values('계약일')
+                                            # 회귀분석을 위한 수치형 변환
+                                            x_numeric = df_sorted['계약일'].map(lambda x: x.timestamp())
+                                            y_values = df_sorted['거래금액_억']
+                                            
+                                            # [CHANGED] 다차 회귀분석 (Polynomial Regression)
+                                            # 데이터 개수에 따라 차수 동적 결정 (최대 3차)
+                                            degree = min(3, len(filtered_df) - 1)
+                                            coeffs = np.polyfit(x_numeric, y_values, degree)
+                                            poly_eqn = np.poly1d(coeffs)
+                                            trend_line = poly_eqn(x_numeric)
+                                            
+                                            # 변동폭 계산 (Standard Deviation of Residuals)
+                                            # 다차 회귀이므로 복잡한 예측 구간 공식 대신 잔차 표준편차 활용
+                                            residuals = y_values - trend_line
+                                            std_dev = residuals.std()
+                                            
+                                            # 민감도 1.5배 적용 (약 87% 신뢰구간)
+                                            upper_bound = trend_line + (1.5 * std_dev)
+                                            lower_bound = trend_line - (1.5 * std_dev)
+                                            
+                                            # 1. 상단 밴드 (투명선)
+                                            fig.add_trace(go.Scatter(
+                                                x=df_sorted['계약일'], y=upper_bound,
+                                                mode='lines', line=dict(width=0),
+                                                showlegend=False, hoverinfo='skip'
+                                            ))
+                                            # 2. 하단 밴드 (상단과 채우기 = Trend Width)
+                                            fig.add_trace(go.Scatter(
+                                                x=df_sorted['계약일'], y=lower_bound,
+                                                mode='lines', line=dict(width=0),
+                                                fill='tonexty', fillcolor='rgba(76, 120, 168, 0.1)',
+                                                showlegend=False, hoverinfo='skip'
+                                            ))
+                                            # 3. 추세선 (중앙)
+                                            fig.add_trace(go.Scatter(
+                                                x=df_sorted['계약일'], y=trend_line,
+                                                mode='lines', name='추세',
+                                                line=dict(color='rgba(255, 99, 71, 0.8)', width=2, dash='dash'),
+                                                showlegend=False # [CHANGED] 범례 숨김
+                                            ))
+                                        
                                         # 마커 디자인 개선 (크기 확대, 테두리 추가, 투명도)
                                         fig.update_traces(
                                             marker=dict(size=12, line=dict(width=1, color='white'), opacity=0.8)
@@ -676,7 +738,7 @@ with tab1:
                                             title=dict(text=f"{area}㎡ 실거래가 추이", font=dict(size=18, color="#333333")),
                                             yaxis_title="거래금액 (억원)", 
                                             xaxis_title=None, # X축 타이틀 제거
-                                            height=400,
+                                            height=500, # [CHANGED] 차트 높이 확대
                                             margin=dict(t=50, b=20, l=20, r=20),
                                             hovermode="closest"
                                         )

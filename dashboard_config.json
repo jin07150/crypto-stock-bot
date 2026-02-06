@@ -33,6 +33,12 @@
             "lawd_cd": "27260",
             "region_name": "대구광역시 수성구",
             "apt_name": "만촌자이르네"
+        },
+        {
+            "id": "d7657d38-7776-4300-8432-e0ff3fa05b76",
+            "lawd_cd": "11650",
+            "region_name": "서울특별시 서초구",
+            "apt_name": "아크로리버뷰신반포"
         }
     ],
     "selected_coins": [
@@ -47,6 +53,7 @@
     ],
     "custom_stock": "",
     "dashboard_order": [
+        "exchange:USD/KRW",
         "real_estate:7f5e3f9e-63b3-4e93-a164-95d0cc94fcc8",
         "stock_rec:삼성전자 (005930.KS)",
         "coin:비트코인 (KRW-BTC)",
@@ -54,10 +61,10 @@
         "real_estate:93af5509-f876-439a-8f7f-838583c34854",
         "real_estate:6b73ffc4-2437-4c38-be50-7807e466b14b",
         "real_estate:c50c9593-0aee-4886-89d8-4a437d8a9f50",
-        "exchange:USD/KRW",
         "stock_rec:TIGER 미국S&P500 (360750.KS)",
         "stock_rec:TIGER 미국필라델피아반도체 (381180.KS)",
-        "stock_rec:ACE KRX금현물 (411060.KS)"
+        "stock_rec:ACE KRX금현물 (411060.KS)",
+        "stock_rec:TIGER 미국나스닥100 (133690.KS)"
     ],
     "selected_ai_model": "models/gemini-2.5-flash"
 }
