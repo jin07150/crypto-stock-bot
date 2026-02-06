@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.1.6"   
+__version__ = "1.1.7"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -463,7 +463,7 @@ if ordered_metrics:
                 # 버튼 라벨에 주요 정보 표시 (줄바꿈으로 구분)
                 btn_label = f"{metric['label']}\n{metric['value']}"
                 
-                if st.button(btn_label, key=f"btn_{i}", use_container_width=True):
+                if st.button(btn_label, key=f"btn_{i}", width="stretch"):
                     st.session_state['selected_asset'] = metric
                     st.rerun()
 else:
@@ -571,7 +571,7 @@ with tab1:
                     
                     fig = px.line(df, x='date', y='trade_price', title=f"{target['label']} 가격 추이")
                     fig.update_layout(hovermode="x unified") # 마우스 오버 시 정보 표시
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 except:
                     st.error("차트 데이터를 불러올 수 없습니다.")
         
@@ -608,7 +608,7 @@ with tab1:
 
                         fig = px.line(df, x=date_col, y='Close', title=f"{target['label']} 추이")
                         fig.update_layout(hovermode="x unified")
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                 except Exception as e:
                     st.error(f"차트 데이터를 불러올 수 없습니다: {e}")
 
@@ -744,7 +744,7 @@ with tab1:
                                         )
                                         fig.update_yaxes(tickformat=".2f")
                                         
-                                        st.plotly_chart(fig, use_container_width=True)
+                                        st.plotly_chart(fig, width="stretch")
                                     
                                     with c2:
                                         st.markdown("**거래 내역**")
@@ -824,7 +824,7 @@ with tab3:
         if target and target.get('type') != 'info':
             st.markdown(f"### 📊 {target['label']} 심층 분석")
             
-            if st.button("AI 리포트 생성하기 ✨", type="primary", use_container_width=True):
+            if st.button("AI 리포트 생성하기 ✨", type="primary", width="stretch"):
                 with st.spinner(f"Gemini가 {target['label']} 데이터를 분석하고 있습니다..."):
                     try:
                         # 컨텍스트 데이터 수집
