@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.1.9"   
+__version__ = "1.2.0"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -227,12 +227,17 @@ with st.sidebar:
                         default_coins.append(key)
             st.session_state['selected_coins_state'] = default_coins
         
-        selected_coins = st.multiselect(
-            "코인 선택 (이름 검색 가능)", 
-            options=list(coin_market_dict.keys()),
-            key="selected_coins_state", # 세션 상태와 연동
-            on_change=utils.save_config # 변경 시 저장
-        )
+        # [FIX] API 장애 등으로 코인 목록이 비어있을 때 설정을 덮어쓰지 않도록 보호
+        if coin_market_dict:
+            selected_coins = st.multiselect(
+                "코인 선택 (이름 검색 가능)", 
+                options=list(coin_market_dict.keys()),
+                key="selected_coins_state", # 세션 상태와 연동
+                on_change=utils.save_config # 변경 시 저장
+            )
+        else:
+            st.warning("⚠️ 코인 목록을 불러올 수 없습니다. (일시적 API 오류 또는 네트워크 문제)")
+            selected_coins = st.session_state.get('selected_coins_state', [])
 
     # 4. AI 설정
     with st.expander("🤖 AI 설정", expanded=False):
@@ -260,6 +265,31 @@ with st.sidebar:
                 st.selectbox("사용할 AI 모델 선택", available_models, key="selected_ai_model", on_change=utils.save_config)
             else:
                 st.warning("사용 가능한 모델을 불러올 수 없습니다. API 키를 확인해주세요.")
+
+    # [NEW] 설정 초기화 버튼
+    with st.expander("⚠️ 설정 초기화", expanded=False):
+        st.caption("대시보드가 정상적으로 보이지 않을 때 초기화를 시도해보세요.")
+        if st.button("모든 설정 초기화 (Factory Reset)", type="primary"):
+            # 1. 세션 상태 초기화
+            st.session_state['selected_stocks_state'] = ["삼성전자 (005930.KS)", "TIGER 미국S&P500 (360750.KS)", "TIGER 미국나스닥100 (133690.KS)", "TIGER 미국필라델피아반도체 (381180.KS)"]
+            st.session_state['selected_coins_state'] = ["비트코인 (KRW-BTC)"]
+            st.session_state['favorite_apts'] = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "lawd_cd": "11680",
+                    "region_name": "서울특별시 강남구",
+                    "apt_name": "은마"
+                }
+            ]
+            st.session_state['dashboard_order'] = []
+            st.session_state['custom_stock_state'] = ""
+            
+            # 2. 설정 저장 (파일/Gist 덮어쓰기)
+            utils.save_config()
+            
+            st.toast("설정이 초기화되었습니다.", icon="🔄")
+            time.sleep(1)
+            st.rerun()
 
     # [NEW] 설정 파일 상태 표시
     st.markdown("---")
