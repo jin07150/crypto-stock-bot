@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.1.7"   
+__version__ = "1.1.9"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -375,29 +375,35 @@ if use_real_estate:
                 if 'id' not in item: item['id'] = str(uuid.uuid4())
                 
                 # 각 관심 단지별 데이터 로드
-                # [REFACTOR] 항상 현재 월의 데이터를 조회하여 최신성을 보장
-                current_deal_ymd = datetime.date.today().strftime("%Y%m")
-                df = data_manager.fetch_apt_trade_data_cached(service_key, item['lawd_cd'], current_deal_ymd)
+                # [IMPROVE] 최근 3개월 데이터를 조회하여 가장 최신 거래 정보를 표시 (거래 절벽 대응)
+                ts = st.session_state.get('cache_invalidation_ts', {}).get(item['lawd_cd'], 0)
+                df = data_manager.get_period_apt_data(service_key, item['lawd_cd'], months=3, _cache_ts=ts)
                 
                 if not df.empty:
-                    # 해당 아파트만 필터링
-                    apt_df = df[df['아파트'] == item['apt_name']]
+                    # 해당 아파트만 필터링 및 최신순 정렬
+                    apt_df = df[df['아파트'] == item['apt_name']].sort_values(by='계약일', ascending=False)
+                    
                     if not apt_df.empty:
-                        # 상세 데이터 병합
+                        # 상세 데이터 병합 (대시보드 전체 분석용)
                         df_display = pd.concat([df_display, apt_df], ignore_index=True)
                         
-                        # 메트릭(요약) 추가
-                        recent = apt_df.iloc[0] # 최신 거래
+                        # 메트릭(요약) 추가 - 가장 최신 거래 1건
+                        recent = apt_df.iloc[0]
+                        
+                        # 계약일 포맷팅 (YYYY-MM-DD -> MM-DD)
+                        deal_date = str(recent['계약일'])
+                        if len(deal_date) >= 10: deal_date = deal_date[5:]
+                        
                         metrics_data.append({
                             "label": f"🏠 {item['apt_name']}",
                             "value": f"{recent['거래금액']:,} 만원",
-                            "delta": f"{recent['층']}층 ({recent['전용면적']}㎡)",
+                            "delta": f"{deal_date} | {recent['층']}층 ({recent['전용면적']}㎡)",
                             "type": "real_estate",
                             "id": idx,
                             "key": f"real_estate:{item['id']}"
                         })
                     else:
-                        metrics_data.append({"label": f"🏠 {item['apt_name']}", "value": "거래 없음", "delta": "-", "type": "real_estate", "id": idx, "key": f"real_estate:{item['id']}"})
+                        metrics_data.append({"label": f"🏠 {item['apt_name']}", "value": "최근 3개월 거래 없음", "delta": "-", "type": "real_estate", "id": idx, "key": f"real_estate:{item['id']}"})
                 else:
                     metrics_data.append({"label": f"🏠 {item['apt_name']}", "value": "데이터 없음", "delta": "API 확인", "type": "real_estate", "id": idx, "key": f"real_estate:{item['id']}"})
     else:
@@ -503,7 +509,14 @@ with tab1:
                     key="period_crypto_stock"
                 )
             elif target['type'] == 'real_estate':
-                period = "3년"
+                period = st.radio(
+                    "조회 기간",
+                    ["1년", "3년", "5년"],
+                    index=0,
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key="period_real_estate"
+                )
             
             if target['type'] == 'real_estate' and lawd_cd_for_cache:
                 if st.button("🔄 캐시 새로고침"):
@@ -624,7 +637,9 @@ with tab1:
                 apt_name = apt_info['apt_name']
                 lawd_cd = apt_info['lawd_cd']
                 
-                months = 36
+                months = 12
+                if period == "3년": months = 36
+                elif period == "5년": months = 60
                 
                 ts = st.session_state.get('cache_invalidation_ts', {}).get(lawd_cd, 0)
                 period_data = data_manager.get_period_apt_data(service_key, lawd_cd, months=months, _cache_ts=ts)
