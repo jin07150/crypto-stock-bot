@@ -113,6 +113,10 @@ def check_password():
         return False
 
     def password_entered():
+        # [NEW] 이미 인증 성공한 경우 중복 실행 방지 (on_change와 on_click 동시 발생 시)
+        if st.session_state.get("password_correct", False):
+            return
+
         # [FIX] KeyError 방지를 위해 get() 사용
         if st.session_state.get("password", "") == password:
             st.session_state["password_correct"] = True
