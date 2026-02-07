@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.3.0"   
+__version__ = "1.3.1"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -333,7 +333,7 @@ with st.sidebar:
         st.caption("대시보드가 정상적으로 보이지 않을 때 초기화를 시도해보세요.")
         
         def reset_callback():
-            st.session_state['selected_stocks_state'] = ["삼성전자 (005930.KS)", "TIGER 미국S&P500 (360750.KS)", "TIGER 미국나스닥100 (133690.KS)", "TIGER 미국필라델피아반도체 (381180.KS)"]
+            st.session_state['selected_stocks_state'] = ["삼성전자 (005930.KS)", "TIGER 미국S&P500 (360750.KS)", "TIGER 미국나스닥100 (133690.KS)", "TIGER 미국필라델피아반도체 (381180.KS)", "ACE KRX금현물 (411060.KS)"]
             st.session_state['selected_coins_state'] = ["비트코인 (KRW-BTC)"]
             st.session_state['favorite_apts'] = [
                 {
@@ -341,6 +341,12 @@ with st.sidebar:
                     "lawd_cd": "11680",
                     "region_name": "서울특별시 강남구",
                     "apt_name": "은마"
+                },
+                {
+                    "id": str(uuid.uuid4()),
+                    "lawd_cd": "27260",
+                    "region_name": "대구광역시 수성구",
+                    "apt_name": "만촌삼정그린코아에듀파크"
                 }
             ]
             st.session_state['dashboard_order'] = []
