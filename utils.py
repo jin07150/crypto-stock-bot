@@ -113,10 +113,12 @@ def check_password():
         return False
 
     def password_entered():
-        if st.session_state["password"] == password:
+        # [FIX] KeyError 방지를 위해 get() 사용
+        if st.session_state.get("password", "") == password:
             st.session_state["password_correct"] = True
             st.session_state["password_attempts"] = 0
-            del st.session_state["password"]
+            if "password" in st.session_state:
+                del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
             st.session_state["password_attempts"] += 1
