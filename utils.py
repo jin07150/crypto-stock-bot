@@ -126,6 +126,7 @@ def check_password():
 
     if "password_correct" not in st.session_state:
         st.text_input("🔐 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password")
+        st.button("확인", on_click=password_entered)
         return False
     elif not st.session_state["password_correct"]:
         if time.time() < st.session_state["block_until"]:
@@ -133,6 +134,7 @@ def check_password():
             st.error(f"⚠️ 입력 횟수 초과! {remaining}초 후에 다시 시도해주세요.")
             return False
         st.text_input("🔐 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password")
+        st.button("확인", on_click=password_entered)
         st.error(f"비밀번호가 틀렸습니다. ({st.session_state['password_attempts']}/5회 시도)")
         return False
     else:
