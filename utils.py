@@ -5,12 +5,6 @@ import time
 import requests
 import datetime
 import xml.etree.ElementTree as ET
-try:
-    from github import Github, InputFileContent, GithubException
-except ImportError:
-    Github = None
-    InputFileContent = None
-    GithubException = None
 
 # 주요 주식 추천 목록
 STOCK_RECOMMENDATIONS = {
@@ -29,28 +23,7 @@ STOCK_RECOMMENDATIONS = {
 CONFIG_FILE = "dashboard_config.json"
 APT_LIST_FILE = "apt_list.json"
 
-def get_gist(gh_client):
-    user = gh_client.get_user()
-    for gist in user.get_gists():
-        if CONFIG_FILE in gist.files:
-            return gist
-    return None
-
 def load_config():
-    token = os.getenv("GITHUB_TOKEN")
-    if token and Github:
-        try:
-            gh = Github(token)
-            gist = get_gist(gh)
-            if gist:
-                content = gist.files[CONFIG_FILE].content
-                return json.loads(content)
-        except Exception as e:
-            if "Bad credentials" in str(e) or "401" in str(e):
-                print("⚠️ GitHub API 인증 실패: 토큰이 유효하지 않습니다. 로컬 설정을 사용합니다.")
-            else:
-                print(f"Gist load error: {e}")
-
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -69,28 +42,6 @@ def save_config():
         "selected_ai_model": st.session_state.get("selected_ai_model", "models/gemini-1.5-flash")
     }
     
-    token = os.getenv("GITHUB_TOKEN")
-    if token and Github:
-        try:
-            gh = Github(token)
-            gist = get_gist(gh)
-            json_content = json.dumps(config, ensure_ascii=False, indent=4)
-            
-            if gist:
-                gist.edit(files={CONFIG_FILE: InputFileContent(json_content)})
-            else:
-                user = gh.get_user()
-                user.create_gist(
-                    public=False, 
-                    files={CONFIG_FILE: InputFileContent(json_content)}, 
-                    description="Crypto Stock Bot Dashboard Config"
-                )
-        except Exception as e:
-            if "Bad credentials" in str(e) or "401" in str(e):
-                print("⚠️ GitHub API 인증 실패: 설정을 Gist에 저장할 수 없습니다.")
-            else:
-                print(f"Gist save error: {e}")
-
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
