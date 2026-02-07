@@ -1,44 +1,28 @@
 {
     "favorite_apts": [
         {
-            "id": "7f5e3f9e-63b3-4e93-a164-95d0cc94fcc8",
+            "id": "41132df8-74e1-4f20-9843-ccf503cfd252",
             "lawd_cd": "27260",
             "region_name": "대구광역시 수성구",
-            "apt_name": "만촌삼정그린코아에듀파크",
-            "deal_ymd": "202601"
+            "apt_name": "동서맨션"
         },
         {
-            "id": "d02b33cd-93f0-4a8a-a91a-05825c442e71",
+            "id": "b56be813-e8ef-4048-8f09-db34ac138cc3",
             "lawd_cd": "27260",
             "region_name": "대구광역시 수성구",
-            "apt_name": "수성골드클래스더센텀",
-            "deal_ymd": "202601"
+            "apt_name": "만촌삼정그린코아에듀파크"
         },
         {
-            "id": "93af5509-f876-439a-8f7f-838583c34854",
-            "lawd_cd": "27260",
-            "region_name": "대구광역시 수성구",
-            "apt_name": "수성범어W",
-            "deal_ymd": "202601"
-        },
-        {
-            "id": "6b73ffc4-2437-4c38-be50-7807e466b14b",
-            "lawd_cd": "27260",
-            "region_name": "대구광역시 수성구",
-            "apt_name": "수성2차e-편한세상",
-            "deal_ymd": "202601"
-        },
-        {
-            "id": "c50c9593-0aee-4886-89d8-4a437d8a9f50",
+            "id": "b1f92a1b-55c8-4cc8-aefd-8f150a02843f",
             "lawd_cd": "27260",
             "region_name": "대구광역시 수성구",
             "apt_name": "만촌자이르네"
         },
         {
-            "id": "d7657d38-7776-4300-8432-e0ff3fa05b76",
-            "lawd_cd": "11650",
-            "region_name": "서울특별시 서초구",
-            "apt_name": "아크로리버뷰신반포"
+            "id": "a4d76f32-e513-444d-b386-b0216842ca98",
+            "lawd_cd": "27260",
+            "region_name": "대구광역시 수성구",
+            "apt_name": "수성2차e-편한세상"
         }
     ],
     "selected_coins": [
@@ -47,24 +31,20 @@
     "selected_stocks": [
         "삼성전자 (005930.KS)",
         "TIGER 미국S&P500 (360750.KS)",
-        "TIGER 미국필라델피아반도체 (381180.KS)",
-        "ACE KRX금현물 (411060.KS)",
-        "TIGER 미국나스닥100 (133690.KS)"
+        "TIGER 미국나스닥100 (133690.KS)",
+        "TIGER 미국필라델피아반도체 (381180.KS)"
     ],
     "custom_stock": "",
     "dashboard_order": [
         "exchange:USD/KRW",
-        "real_estate:7f5e3f9e-63b3-4e93-a164-95d0cc94fcc8",
-        "stock_rec:삼성전자 (005930.KS)",
         "coin:비트코인 (KRW-BTC)",
-        "real_estate:d02b33cd-93f0-4a8a-a91a-05825c442e71",
-        "real_estate:93af5509-f876-439a-8f7f-838583c34854",
-        "real_estate:6b73ffc4-2437-4c38-be50-7807e466b14b",
-        "real_estate:c50c9593-0aee-4886-89d8-4a437d8a9f50",
+        "stock_rec:삼성전자 (005930.KS)",
         "stock_rec:TIGER 미국S&P500 (360750.KS)",
+        "stock_rec:TIGER 미국나스닥100 (133690.KS)",
         "stock_rec:TIGER 미국필라델피아반도체 (381180.KS)",
-        "stock_rec:ACE KRX금현물 (411060.KS)",
-        "stock_rec:TIGER 미국나스닥100 (133690.KS)"
+        "real_estate:41132df8-74e1-4f20-9843-ccf503cfd252",
+        "real_estate:b56be813-e8ef-4048-8f09-db34ac138cc3",
+        "real_estate:b1f92a1b-55c8-4cc8-aefd-8f150a02843f"
     ],
     "selected_ai_model": "models/gemini-2.5-flash"
 }

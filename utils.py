@@ -27,6 +27,7 @@ STOCK_RECOMMENDATIONS = {
 }
 
 CONFIG_FILE = "dashboard_config.json"
+APT_LIST_FILE = "apt_list.json"
 
 def get_gist(gh_client):
     user = gh_client.get_user()
@@ -170,3 +171,40 @@ def display_news(keyword):
             st.warning("뉴스 데이터를 가져오지 못했습니다.")
     except Exception as e:
         st.error(f"뉴스 로딩 중 오류: {e}")
+
+def get_apt_list(lawd_cd):
+    """저장된 아파트 목록 파일에서 해당 지역의 아파트 리스트를 불러옵니다."""
+    if os.path.exists(APT_LIST_FILE):
+        try:
+            with open(APT_LIST_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get(lawd_cd, [])
+        except:
+            return []
+    return []
+
+def update_apt_list(lawd_cd, new_list):
+    """새로운 아파트 목록을 기존 파일에 병합하여 저장합니다."""
+    data = {}
+    if os.path.exists(APT_LIST_FILE):
+        try:
+            with open(APT_LIST_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except:
+            data = {}
+    
+    current_list = data.get(lawd_cd, [])
+    # 기존 목록과 새 목록을 합치고 중복 제거 후 정렬
+    updated_set = set(current_list)
+    updated_set.update(new_list)
+    updated_list = sorted(list(updated_set))
+    
+    data[lawd_cd] = updated_list
+    
+    try:
+        with open(APT_LIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"Failed to save apt list: {e}")
+        
+    return updated_list

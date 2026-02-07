@@ -14,7 +14,7 @@ def get_apt_trade_data(service_key: str, lawd_cd: str, deal_ymd: str) -> pd.Data
         "serviceKey": requests.utils.unquote(service_key), # API 키 디코딩 적용
         "LAWD_CD": lawd_cd,
         "DEAL_YMD": deal_ymd,
-        "numOfRows": "1000",  # 한 페이지 결과 수
+        "numOfRows": "9999",  # 한 페이지 결과 수
         "pageNo": "1"        # 페이지 번호
     }
     

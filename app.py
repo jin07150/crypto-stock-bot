@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.2.0"   
+__version__ = "1.2.7"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -82,6 +82,10 @@ if 'dashboard_order' not in st.session_state:
 if 'cache_invalidation_ts' not in st.session_state:
     st.session_state['cache_invalidation_ts'] = {}
 
+# [NEW] 아파트 목록 조회 데이터 캐시 (UI용)
+if 'fetched_apt_data' not in st.session_state:
+    st.session_state['fetched_apt_data'] = {}
+
 # 2. 사이드바 설정 (입력값 받기)
 with st.sidebar:
     st.markdown(f"""
@@ -131,53 +135,111 @@ with st.sidebar:
             else:
                 target_lawd = st.text_input("부동산 지역 코드", value="11680")
 
-            target_date = st.date_input("조회 기준일", datetime.date.today())
-            
             # 부동산 데이터 로딩 (설정값이 다 있을 때만)
             # [변경] 선택한 조건을 즐겨찾기에 추가하는 로직으로 변경
             if service_key and target_lawd:
-                deal_ymd = target_date.strftime("%Y%m")
-                # 캐싱된 함수 사용하여 임시 데이터 로드
-                ts = st.session_state.get('cache_invalidation_ts', {}).get(target_lawd, 0)
-                with st.spinner("데이터 조회 중..."):
-                    df_temp = data_manager.fetch_apt_trade_data_cached(service_key, target_lawd, deal_ymd, _cache_ts=ts)
+                # [NEW] 지역 변경 감지 및 검색 기준일 관리
+                if 'last_lawd_cd' not in st.session_state:
+                    st.session_state['last_lawd_cd'] = target_lawd
+                    st.session_state['apt_search_date'] = datetime.date.today()
                 
-                # 데이터 유무와 상관없이 selectbox 표시 (UX 개선)
-                apt_list = []
-                if not df_temp.empty:
-                    apt_list = sorted(df_temp['아파트'].unique().tolist())
+                if st.session_state['last_lawd_cd'] != target_lawd:
+                    st.session_state['last_lawd_cd'] = target_lawd
+                    st.session_state['apt_search_date'] = datetime.date.today()
+
+                # 현재 검색 기준 년월 설정 (갱신 시마다 과거로 이동)
+                current_search_dt = st.session_state['apt_search_date']
+                deal_ymd = current_search_dt.strftime("%Y%m")
+                cache_key = f"{target_lawd}_{deal_ymd}"
                 
+                # 1. 파일에 저장된 아파트 목록 불러오기 (API 호출 없이 즉시 로드)
+                saved_apt_list = utils.get_apt_list(target_lawd)
+                
+                # 2. 세션에 저장된 거래 데이터 확인
+                df_current = st.session_state['fetched_apt_data'].get(cache_key)
+                
+                col_list_info, col_refresh = st.columns([0.7, 0.3])
+                trigger_fetch = False
+                
+                with col_list_info:
+                    if saved_apt_list:
+                        st.caption(f"✅ 저장된 목록: {len(saved_apt_list)}개")
+                    else:
+                        st.caption("ℹ️ 저장된 목록 없음")
+                    # [NEW] 현재 조회 대상 월 표시
+                    st.caption(f"📅 조회 대상: {current_search_dt.strftime('%Y.%m')}")
+                
+                with col_refresh:
+                    # 목록이 있으면 '갱신', 없으면 '조회'
+                    btn_label = "목록 갱신 🔄"
+                    if st.button(btn_label, key="btn_refresh_apt", help=f"{current_search_dt.strftime('%Y년 %m월')} 데이터를 조회하여 목록에 추가합니다."):
+                        st.session_state.setdefault('cache_invalidation_ts', {})[target_lawd] = time.time()
+                        trigger_fetch = True
+                
+                if trigger_fetch:
+                    ts = st.session_state.get('cache_invalidation_ts', {}).get(target_lawd, 0)
+                    with st.spinner(f"{current_search_dt.strftime('%Y년 %m월')} 거래 데이터 조회 중..."):
+                        df_temp = data_manager.fetch_apt_trade_data_cached(service_key, target_lawd, deal_ymd, _cache_ts=ts)
+                        st.session_state['fetched_apt_data'][cache_key] = df_temp
+                        df_current = df_temp
+                        
+                        # [NEW] 조회된 데이터에서 아파트 이름을 추출하여 파일에 저장/업데이트
+                        if not df_temp.empty:
+                            new_apts = df_temp['아파트'].unique().tolist()
+                            saved_apt_list = utils.update_apt_list(target_lawd, new_apts)
+                            st.toast(f"목록 업데이트 완료! ({len(new_apts)}개 단지 발견)", icon="✅")
+                        else:
+                            st.toast(f"{current_search_dt.strftime('%Y년 %m월')} 거래 내역이 없습니다.", icon="ℹ️")
+                        
+                        # [NEW] 다음 조회를 위해 한 달 전으로 이동
+                        prev_month = current_search_dt.replace(day=1) - datetime.timedelta(days=1)
+                        st.session_state['apt_search_date'] = prev_month
+                
+                # 아파트 선택 창 (저장된 목록 사용)
                 selected_apt = st.selectbox(
                     "아파트 단지 선택", 
-                    apt_list, 
+                    saved_apt_list, 
                     index=None, 
-                    placeholder="데이터 조회 결과가 없습니다" if not apt_list else "아파트 이름을 검색하세요",
-                    disabled=not apt_list
+                    placeholder="아파트 이름을 검색하세요" if saved_apt_list else "목록 조회를 눌러주세요",
+                    disabled=not saved_apt_list
                 )
                 
-                if not apt_list:
-                    st.warning("데이터가 없습니다. API 키(Decoding)가 올바른지 확인하거나 터미널 로그를 확인해주세요.")
-                
                 if selected_apt:
-                    # 선택된 아파트 데이터 필터링 및 정렬 (최신순)
-                    apt_df = df_temp[df_temp['아파트'] == selected_apt].sort_values(by='계약일', ascending=False)
-                    
-                    # 선택된 아파트의 거래 건수 표시
-                    trade_count = len(apt_df)
-                    st.caption(f"해당 기간 거래 건수: {trade_count}건")
-                    
-                    # [NEW] 최근 실거래가 프리뷰
-                    if not apt_df.empty:
-                        latest = apt_df.iloc[0]
-                        st.info(f"💡 최근 실거래가: {latest['거래금액']:,}만원 ({latest['계약일']}, {latest['층']}층, {latest['전용면적']}㎡)")
+                    # 선택된 아파트의 상세 정보를 보여주기 위해 데이터 로드 (메모리에 없을 경우)
+                    if df_current is None:
+                        with st.spinner("상세 데이터 불러오는 중..."):
+                            ts = st.session_state.get('cache_invalidation_ts', {}).get(target_lawd, 0)
+                            df_temp = data_manager.fetch_apt_trade_data_cached(service_key, target_lawd, deal_ymd, _cache_ts=ts)
+                            st.session_state['fetched_apt_data'][cache_key] = df_temp
+                            df_current = df_temp
+                            # 로드한 김에 목록 업데이트
+                            if not df_temp.empty:
+                                new_apts = df_temp['아파트'].unique().tolist()
+                                utils.update_apt_list(target_lawd, new_apts)
+
+                    # 데이터 필터링 및 표시
+                    if df_current is not None and not df_current.empty:
+                        apt_df = df_current[df_current['아파트'] == selected_apt].sort_values(by='계약일', ascending=False)
                         
-                        with st.expander("📋 상세 거래 내역 미리보기"):
-                            st.dataframe(
-                                apt_df[['계약일', '거래금액', '전용면적', '층']], 
-                                width="stretch",
-                                hide_index=True
-                            )
+                        # 선택된 아파트의 거래 건수 표시
+                        trade_count = len(apt_df)
+                        st.caption(f"해당 기간 거래 건수: {trade_count}건")
+                        
+                        # [NEW] 최근 실거래가 프리뷰
+                        if not apt_df.empty:
+                            latest = apt_df.iloc[0]
+                            st.info(f"💡 최근 실거래가: {latest['거래금액']:,}만원 ({latest['계약일']}, {latest['층']}층, {latest['전용면적']}㎡)")
+                            
+                            with st.expander("📋 상세 거래 내역 미리보기"):
+                                st.dataframe(
+                                    apt_df[['계약일', '거래금액', '전용면적', '층']], 
+                                    width="stretch",
+                                    hide_index=True
+                                )
+                    else:
+                        st.warning(f"{current_search_dt.strftime('%Y년 %m월')} 거래 내역이 없습니다.")
                     
+                    # 거래 내역이 없어도 관심 단지 추가는 가능하도록 버튼 표시
                     if st.button("관심 단지 추가 ➕"):
                         # 중복 확인 (ID 제외하고 내용으로 비교)
                         is_duplicate = False
@@ -269,8 +331,8 @@ with st.sidebar:
     # [NEW] 설정 초기화 버튼
     with st.expander("⚠️ 설정 초기화", expanded=False):
         st.caption("대시보드가 정상적으로 보이지 않을 때 초기화를 시도해보세요.")
-        if st.button("모든 설정 초기화 (Factory Reset)", type="primary"):
-            # 1. 세션 상태 초기화
+        
+        def reset_callback():
             st.session_state['selected_stocks_state'] = ["삼성전자 (005930.KS)", "TIGER 미국S&P500 (360750.KS)", "TIGER 미국나스닥100 (133690.KS)", "TIGER 미국필라델피아반도체 (381180.KS)"]
             st.session_state['selected_coins_state'] = ["비트코인 (KRW-BTC)"]
             st.session_state['favorite_apts'] = [
@@ -283,13 +345,11 @@ with st.sidebar:
             ]
             st.session_state['dashboard_order'] = []
             st.session_state['custom_stock_state'] = ""
-            
-            # 2. 설정 저장 (파일/Gist 덮어쓰기)
+            st.session_state['fetched_apt_data'] = {}
             utils.save_config()
-            
+
+        if st.button("모든 설정 초기화 (Factory Reset)", type="primary", on_click=reset_callback):
             st.toast("설정이 초기화되었습니다.", icon="🔄")
-            time.sleep(1)
-            st.rerun()
 
     # [NEW] 설정 파일 상태 표시
     st.markdown("---")
