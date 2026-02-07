@@ -1,12 +1,6 @@
 {
     "favorite_apts": [
         {
-            "id": "41132df8-74e1-4f20-9843-ccf503cfd252",
-            "lawd_cd": "27260",
-            "region_name": "대구광역시 수성구",
-            "apt_name": "동서맨션"
-        },
-        {
             "id": "b56be813-e8ef-4048-8f09-db34ac138cc3",
             "lawd_cd": "27260",
             "region_name": "대구광역시 수성구",
@@ -23,6 +17,12 @@
             "lawd_cd": "27260",
             "region_name": "대구광역시 수성구",
             "apt_name": "수성2차e-편한세상"
+        },
+        {
+            "id": "c8bcc6e0-17d7-40ae-bef1-fd47f9316567",
+            "lawd_cd": "27140",
+            "region_name": "대구광역시 동구",
+            "apt_name": "동서맨션"
         }
     ],
     "selected_coins": [
@@ -32,7 +32,8 @@
         "삼성전자 (005930.KS)",
         "TIGER 미국S&P500 (360750.KS)",
         "TIGER 미국나스닥100 (133690.KS)",
-        "TIGER 미국필라델피아반도체 (381180.KS)"
+        "TIGER 미국필라델피아반도체 (381180.KS)",
+        "ACE KRX금현물 (411060.KS)"
     ],
     "custom_stock": "",
     "dashboard_order": [
@@ -42,9 +43,10 @@
         "stock_rec:TIGER 미국S&P500 (360750.KS)",
         "stock_rec:TIGER 미국나스닥100 (133690.KS)",
         "stock_rec:TIGER 미국필라델피아반도체 (381180.KS)",
-        "real_estate:41132df8-74e1-4f20-9843-ccf503cfd252",
         "real_estate:b56be813-e8ef-4048-8f09-db34ac138cc3",
-        "real_estate:b1f92a1b-55c8-4cc8-aefd-8f150a02843f"
+        "real_estate:b1f92a1b-55c8-4cc8-aefd-8f150a02843f",
+        "real_estate:a4d76f32-e513-444d-b386-b0216842ca98",
+        "real_estate:c8bcc6e0-17d7-40ae-bef1-fd47f9316567"
     ],
     "selected_ai_model": "models/gemini-2.5-flash"
 }
