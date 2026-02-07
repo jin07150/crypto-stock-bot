@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.3.2"   
+__version__ = "1.3.3"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -335,21 +335,45 @@ with st.sidebar:
         def reset_callback():
             st.session_state['selected_stocks_state'] = ["삼성전자 (005930.KS)", "TIGER 미국S&P500 (360750.KS)", "TIGER 미국나스닥100 (133690.KS)", "TIGER 미국필라델피아반도체 (381180.KS)", "ACE KRX금현물 (411060.KS)"]
             st.session_state['selected_coins_state'] = ["비트코인 (KRW-BTC)"]
+            st.session_state['selected_ai_model'] = "models/gemini-2.5-flash"
             st.session_state['favorite_apts'] = [
                 {
-                    "id": str(uuid.uuid4()),
-                    "lawd_cd": "11680",
-                    "region_name": "서울특별시 강남구",
-                    "apt_name": "은마"
-                },
-                {
-                    "id": str(uuid.uuid4()),
+                    "id": "b56be813-e8ef-4048-8f09-db34ac138cc3",
                     "lawd_cd": "27260",
                     "region_name": "대구광역시 수성구",
                     "apt_name": "만촌삼정그린코아에듀파크"
+                },
+                {
+                    "id": "b1f92a1b-55c8-4cc8-aefd-8f150a02843f",
+                    "lawd_cd": "27260",
+                    "region_name": "대구광역시 수성구",
+                    "apt_name": "만촌자이르네"
+                },
+                {
+                    "id": "a4d76f32-e513-444d-b386-b0216842ca98",
+                    "lawd_cd": "27260",
+                    "region_name": "대구광역시 수성구",
+                    "apt_name": "수성2차e-편한세상"
+                },
+                {
+                    "id": "c8bcc6e0-17d7-40ae-bef1-fd47f9316567",
+                    "lawd_cd": "27140",
+                    "region_name": "대구광역시 동구",
+                    "apt_name": "동서맨션"
                 }
             ]
-            st.session_state['dashboard_order'] = []
+            st.session_state['dashboard_order'] = [
+                "exchange:USD/KRW",
+                "coin:비트코인 (KRW-BTC)",
+                "stock_rec:삼성전자 (005930.KS)",
+                "stock_rec:TIGER 미국S&P500 (360750.KS)",
+                "stock_rec:TIGER 미국나스닥100 (133690.KS)",
+                "stock_rec:TIGER 미국필라델피아반도체 (381180.KS)",
+                "real_estate:b56be813-e8ef-4048-8f09-db34ac138cc3",
+                "real_estate:b1f92a1b-55c8-4cc8-aefd-8f150a02843f",
+                "real_estate:a4d76f32-e513-444d-b386-b0216842ca98",
+                "real_estate:c8bcc6e0-17d7-40ae-bef1-fd47f9316567"
+            ]
             st.session_state['custom_stock_state'] = ""
             st.session_state['fetched_apt_data'] = {}
             utils.save_config()
