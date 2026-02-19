@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.3.4"   
+__version__ = "1.3.6"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -570,7 +570,12 @@ with st.sidebar:
         if sorted_labels != labels:
             label_to_key = {m['label']: m['key'] for m in ordered_metrics}
             new_order = [label_to_key[lbl] for lbl in sorted_labels if lbl in label_to_key]
-            st.session_state['dashboard_order'] = new_order
+            
+            # [FIX] 화면에 보이지 않는 항목(데이터 로드 실패 등)이 삭제되지 않도록 보존
+            visible_keys = set(label_to_key.values())
+            hidden_items = [k for k in st.session_state['dashboard_order'] if k not in visible_keys]
+            
+            st.session_state['dashboard_order'] = new_order + hidden_items
             utils.save_config() # 순서 변경 저장
             st.rerun()
     elif not sort_items:

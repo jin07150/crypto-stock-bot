@@ -22,7 +22,8 @@ STOCK_RECOMMENDATIONS = {
 
 CONFIG_FILE = "dashboard_config.json"
 APT_LIST_FILE = "apt_list.json"
-AUTH_FILE = ".auth_session"
+# [FIX] 파일 경로를 절대 경로로 변경하여 인식 오류 방지
+AUTH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".auth_session")
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
