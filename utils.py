@@ -22,6 +22,7 @@ STOCK_RECOMMENDATIONS = {
 
 CONFIG_FILE = "dashboard_config.json"
 APT_LIST_FILE = "apt_list.json"
+AUTH_FILE = ".auth_session"
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -53,6 +54,17 @@ def check_password():
     if not password:
         return True
 
+    # [NEW] 저장된 인증 세션 확인 (30분 유효)
+    if "password_correct" not in st.session_state:
+        if os.path.exists(AUTH_FILE):
+            try:
+                with open(AUTH_FILE, "r") as f:
+                    auth_data = json.load(f)
+                    if auth_data.get("expiry", 0) > time.time():
+                        st.session_state["password_correct"] = True
+            except:
+                pass
+
     if "password_attempts" not in st.session_state:
         st.session_state["password_attempts"] = 0
     if "block_until" not in st.session_state:
@@ -72,6 +84,14 @@ def check_password():
         if st.session_state.get("password", "") == password:
             st.session_state["password_correct"] = True
             st.session_state["password_attempts"] = 0
+            
+            # [NEW] 인증 성공 시 30분간 유효한 세션 파일 저장
+            try:
+                with open(AUTH_FILE, "w") as f:
+                    json.dump({"expiry": time.time() + 1800}, f)
+            except Exception as e:
+                print(f"Auth save failed: {e}")
+
             if "password" in st.session_state:
                 del st.session_state["password"]
         else:

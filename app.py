@@ -27,7 +27,7 @@ except ImportError:
 load_dotenv() # .env 파일 로드
 
 # 앱 버전 정보
-__version__ = "1.3.3"   
+__version__ = "1.3.4"   
 
 # 1. 페이지 설정은 반드시 스크립트 최상단에 위치해야 합니다.
 st.set_page_config(page_title=f"통합 자산 모니터링 v{__version__}", page_icon="💰", layout="wide")
@@ -541,7 +541,8 @@ if use_real_estate:
 current_keys = [m['key'] for m in metrics_data]
 
 # 2. 세션에 저장된 순서 리스트 업데이트 (삭제된 항목 제거)
-st.session_state['dashboard_order'] = [k for k in st.session_state['dashboard_order'] if k in current_keys]
+# [FIX] 일시적인 데이터 로드 실패 시 설정이 삭제되는 것을 방지하기 위해 자동 삭제 로직 제거
+# st.session_state['dashboard_order'] = [k for k in st.session_state['dashboard_order'] if k in current_keys]
 
 # 3. 새로운 항목을 순서 리스트 끝에 추가
 for k in current_keys:
@@ -672,6 +673,10 @@ with tab1:
                     if 0 <= target["id"] < len(st.session_state['favorite_apts']):
                         st.session_state['favorite_apts'].pop(target["id"])
                         utils.save_config()
+                
+                # [NEW] 대시보드 순서 설정에서도 제거
+                if target['key'] in st.session_state['dashboard_order']:
+                    st.session_state['dashboard_order'].remove(target['key'])
                 
                 st.session_state['selected_asset'] = None
                 st.rerun()
